@@ -2,11 +2,12 @@ import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { api } from '../api';
 import { useAuth } from '../auth';
-import { useSettings } from '../settings';
+import { parseMenu, useSettings } from '../settings';
 
 export default function Header() {
   const { user, logout } = useAuth();
   const { settings } = useSettings();
+  const menu = parseMenu(settings.headerMenu);
   const nav = useNavigate();
   const [cats, setCats] = useState<any[]>([]);
   const [enrolled, setEnrolled] = useState(0);
@@ -15,7 +16,12 @@ export default function Header() {
   const unread = notes.filter((n) => !n.read).length;
 
   const loadNotes = () => api('/notifications').then(setNotes).catch(() => {});
-  useEffect(() => { api('/categories').then(setCats).catch(() => {}); }, []);
+  useEffect(() => {
+    const load = () => api('/categories').then(setCats).catch(() => {});
+    load();
+    window.addEventListener('site-changed', load);   // admin panel se save hote hi header update
+    return () => window.removeEventListener('site-changed', load);
+  }, []);
   const loadEnrolled = () => api('/my/enrollments').then((r) => setEnrolled(r.length)).catch(() => {});
   useEffect(() => {
     if (!user) { setEnrolled(0); setNotes([]); return; }
@@ -37,11 +43,12 @@ export default function Header() {
     <header className="header">
       <Link to="/" className="logo">{settings.siteName}</Link>
       <nav className="cats">
-        <Link to="/courses">Courses</Link>
-        {cats.map((c) => (
+        {menu.map((m: any) => /^https?:/.test(m.to)
+          ? <a key={m.id} href={m.to} target="_blank" rel="noreferrer">{m.label}</a>
+          : <Link key={m.id} to={m.to}>{m.label}</Link>)}
+        {settings.headerShowCategories !== 'false' && cats.filter((c) => c.showInHeader).map((c) => (
           <Link key={c.id} to={`/courses?category=${c.id}`}>{c.name}</Link>
         ))}
-        <Link to="/reviews">Reviews</Link>
       </nav>
       <div className="right">
         {!user ? (

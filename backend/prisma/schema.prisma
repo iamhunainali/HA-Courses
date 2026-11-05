@@ -37,6 +37,9 @@ model Category {
   id      String   @id @default(uuid())
   name    String   @unique
   courses Course[]
+  showInHeader  Boolean @default(true)
+  showInCourses Boolean @default(true)
+  order         Int     @default(0)
 }
 
 model Course {

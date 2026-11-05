@@ -25,7 +25,7 @@ export default function Courses() {
       <div className="filters">
         <input placeholder="Search courses" value={q} onChange={(e) => setQ(e.target.value)} />
         <button className={'chip' + (!category ? ' on' : '')} onClick={() => setSp({})}>All</button>
-        {cats.map((c) => <button key={c.id} className={'chip' + (category === c.id ? ' on' : '')} onClick={() => setSp({ category: c.id })}>{c.name}</button>)}
+        {cats.filter((c) => c.showInCourses).map((c) => <button key={c.id} className={'chip' + (category === c.id ? ' on' : '')} onClick={() => setSp({ category: c.id })}>{c.name}</button>)}
       </div>
       {list === null ? <p>Loading…</p> : list.length === 0 ? <p className="muted">No courses found.</p> : (
         <div className="grid">{list.map((c) => <CourseCard key={c.id} c={c} enrolled={enrolled(c.id)} onEnroll={() => enroll(c.id)} />)}</div>

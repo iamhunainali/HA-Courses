@@ -193,7 +193,7 @@ export class AdminController {
   // ----- Site settings -----
   @Patch('settings')
   async saveSettings(@Body() b: any) {
-    const keys = ['siteName', 'tagline', 'footerText', 'coursesTitle', 'reviewsTitle', 'contactEmail', 'brandColor'];
+    const keys = ['siteName', 'tagline', 'footerText', 'coursesTitle', 'reviewsTitle', 'contactEmail', 'brandColor', 'headerMenu', 'headerShowCategories'];
     for (const k of keys) {
       if (typeof b[k] === 'string') await this.db.setting.upsert({ where: { key: k }, update: { value: b[k] }, create: { key: k, value: b[k] } });
     }
@@ -203,9 +203,16 @@ export class AdminController {
   // ----- Edit endpoints -----
   @Patch('categories/:id')
   editCategory(@Param('id') id: string, @Body() b: any) {
-    const name = String(b.name || '').trim();
-    if (!name) throw new BadRequestException('Name required');
-    return this.db.category.update({ where: { id }, data: { name } });
+    const data: any = {};
+    if (b.name !== undefined) {
+      const name = String(b.name).trim();
+      if (!name) throw new BadRequestException('Name required');
+      data.name = name;
+    }
+    if (typeof b.showInHeader === 'boolean') data.showInHeader = b.showInHeader;
+    if (typeof b.showInCourses === 'boolean') data.showInCourses = b.showInCourses;
+    if (b.order !== undefined) data.order = parseInt(b.order) || 0;
+    return this.db.category.update({ where: { id }, data });
   }
 
   @Patch('lessons/:id')

@@ -1,12 +1,16 @@
-// Single pipeline: images build + stack deploy/update (stack pehle se ho to update, na ho to create).
-// Volumes (portal_pgdata, portal_uploads) kabhi delete nahi hotay: "down -v" / "volume rm" kahin use nahi hua.
+// Docker Swarm STACK pipeline:
+//   stack "portal" pehle se hai  -> UPDATE (rolling, fail par auto-rollback)
+//   stack nahi hai               -> CREATE (swarm bhi init, volumes bhi bana deta hai)
+// Data volumes external hain aur kahin delete nahi hotay.
 pipeline {
   agent any
   options { timestamps(); disableConcurrentBuilds(); buildDiscarder(logRotator(numToKeepStr: '15')) }
   triggers { githubPush() }            // webhook nahi hai to: pollSCM('H/2 * * * *')
   environment {
+    STACK     = 'portal'
     IMAGE_TAG = "${env.BUILD_NUMBER}"
-    LAST_GOOD = "${env.JENKINS_HOME}/portal_last_good_tag"
+    PGVOL     = 'learning-portal_portal_pgdata'
+    UPVOL     = 'learning-portal_portal_uploads'
   }
 
   stages {
@@ -20,12 +24,45 @@ pipeline {
       }
     }
 
+    stage('Ensure swarm') {
+      steps {
+        sh '''
+          STATE=$(docker info --format '{{.Swarm.LocalNodeState}}')
+          if [ "$STATE" != "active" ]; then
+            echo "Swarm active nahi, init kar raha hun"
+            docker swarm init
+          fi
+          docker info --format 'Swarm: {{.Swarm.LocalNodeState}}, manager: {{.Swarm.ControlAvailable}}'
+        '''
+      }
+    }
+
     stage('Build images') {
       steps {
         sh '''
-          docker compose build
-          docker tag learning-portal-backend:${IMAGE_TAG}  learning-portal-backend:latest
-          docker tag learning-portal-frontend:${IMAGE_TAG} learning-portal-frontend:latest
+          docker build -t learning-portal-backend:${IMAGE_TAG}  -t learning-portal-backend:latest  ./backend
+          docker build -t learning-portal-frontend:${IMAGE_TAG} -t learning-portal-frontend:latest ./frontend
+        '''
+      }
+    }
+
+    stage('Ensure volumes') {
+      steps {
+        sh '''
+          for v in "$PGVOL" "$UPVOL"; do
+            if docker volume inspect "$v" >/dev/null 2>&1; then echo "volume $v: found, reuse (data safe)"
+            else echo "volume $v: creating"; docker volume create "$v"; fi
+          done
+        '''
+      }
+    }
+
+    stage('Free old compose containers') {
+      steps {
+        // Pehle compose se chal rahe containers port 80 rokte hain. Sirf containers hatay jate hain, volumes nahi.
+        sh '''
+          OLD=$(docker ps -aq --filter label=com.docker.compose.project=learning-portal)
+          if [ -n "$OLD" ]; then echo "Removing old compose containers (volumes untouched)"; docker rm -f $OLD; else echo "No old compose containers"; fi
         '''
       }
     }
@@ -33,42 +70,44 @@ pipeline {
     stage('Deploy / Update stack') {
       steps {
         sh '''
-          # Volumes na hon to bante hain, hon to wahi reuse hotay hain (data safe)
-          docker volume inspect learning-portal_portal_pgdata  >/dev/null 2>&1 && echo "pgdata volume found: reuse"  || echo "pgdata volume will be created"
-          docker volume inspect learning-portal_portal_uploads >/dev/null 2>&1 && echo "uploads volume found: reuse" || echo "uploads volume will be created"
-
-          # Stack nahi bana to create; bana hua hai to sirf badle hue containers recreate
-          docker compose up -d --remove-orphans
+          if docker stack ls --format '{{.Name}}' | grep -qx "$STACK"; then echo ">>> Stack '$STACK' exists: UPDATING"; else echo ">>> Stack '$STACK' not found: CREATING"; fi
+          set -a; . ./.env; set +a
+          export IMAGE_TAG
+          docker stack deploy --resolve-image never --prune -c docker-stack.yml "$STACK"
         '''
       }
     }
 
-    stage('Health check') {
+    stage('Verify rollout') {
       steps {
         sh '''
-          for i in $(seq 1 30); do
-            if docker compose exec -T backend node -e "fetch('http://localhost:3000/api/categories').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"; then
-              echo "Backend healthy"; echo "$IMAGE_TAG" > "$LAST_GOOD"; exit 0
-            fi
+          for i in $(seq 1 60); do
+            OK=1
+            for s in db backend frontend; do
+              REP=$(docker service ls --filter name=${STACK}_${s} --format '{{.Name}} {{.Replicas}}' | grep "^${STACK}_${s} " | awk '{print $2}')
+              UPD=$(docker service inspect --format '{{if .UpdateStatus}}{{.UpdateStatus.State}}{{end}}' ${STACK}_${s})
+              case "$UPD" in rollback_started|rollback_completed|paused) echo "Service $s update failed ($UPD)"; exit 1;; esac
+              [ "$REP" = "1/1" ] || OK=0
+              [ -z "$UPD" ] || [ "$UPD" = "completed" ] || OK=0
+            done
+            [ $OK = 1 ] && { echo "All services healthy"; docker stack services $STACK; exit 0; }
             sleep 5
           done
-          echo "Health check failed"; exit 1
+          echo "Timeout: services ready nahi hui"; exit 1
         '''
       }
     }
   }
 
   post {
-    success { sh 'docker image prune -f || true' }
     failure {
-      // Naya version fail ho to pichla chalta hua tag wapis (volumes wahi, data loss nahi)
       sh '''
-        if [ -f "$LAST_GOOD" ]; then
-          PREV=$(cat "$LAST_GOOD"); echo "Rolling back to tag $PREV"
-          IMAGE_TAG=$PREV docker compose up -d --remove-orphans || true
-        fi
+        docker stack services $STACK || true
+        docker stack ps $STACK --no-trunc | head -20 || true
+        docker service logs --tail 40 ${STACK}_backend || true
       '''
     }
-    always { sh 'rm -f .env' }
+    success { sh 'docker image prune -f || true' }
+    always  { sh 'rm -f .env' }
   }
 }

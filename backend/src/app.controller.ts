@@ -56,7 +56,7 @@ export class AppController implements OnModuleInit {
   me(@Req() req: any) { return safe(req.user); }
 
   // ---------- Public ----------
-  @Get('categories') categories() { return this.db.category.findMany({ orderBy: { name: 'asc' } }); }
+  @Get('categories') categories() { return this.db.category.findMany({ orderBy: [{ order: 'asc' }, { name: 'asc' }] }); }
   @Get('slides') slides() { return this.db.slide.findMany({ orderBy: { order: 'asc' } }); }
 
   // Site settings (name, tagline, footer, colors) - public

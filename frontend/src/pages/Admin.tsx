@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react';
 import { api, media, upload } from '../api';
 import Progress from '../components/Progress';
-import { useSettings } from '../settings';
+import { parseMenu, useSettings } from '../settings';
 
-const TABS = ['Overview', 'Courses', 'Videos', 'Slides', 'Categories', 'Reviews', 'Users', 'Enrollments', 'Messages', 'Settings'];
+const TABS = ['Overview', 'Courses', 'Videos', 'Slides', 'Categories', 'Header', 'Course categories', 'Reviews', 'Users', 'Enrollments', 'Messages', 'Settings'];
 
 export default function Admin() {
   const [tab, setTab] = useState('Overview');
@@ -16,6 +16,8 @@ export default function Admin() {
       {tab === 'Videos' && <VideosTab />}
       {tab === 'Slides' && <SlidesTab />}
       {tab === 'Categories' && <CategoriesTab />}
+      {tab === 'Header' && <HeaderTab />}
+      {tab === 'Course categories' && <CourseCategoriesTab />}
       {tab === 'Reviews' && <ReviewsTab />}
       {tab === 'Users' && <UsersTab />}
       {tab === 'Messages' && <MessagesTab />}
@@ -356,6 +358,89 @@ function SettingsTab() {
       {field('contactEmail', 'Contact email')}
       <label>Brand color <input type="color" className="colorpick" value={f.brandColor || '#0f6b5c'} onChange={(e) => setF({ ...f, brandColor: e.target.value })} /></label>
       <div className="row"><button className="btn" onClick={save}>Save settings</button>{msg && <span className="ok">{msg}</span>}</div>
+    </div>
+  );
+}
+
+const siteChanged = () => window.dispatchEvent(new Event('site-changed'));
+
+// Header panel: konse pages/links aur konsi categories header mein dikhani hain
+function HeaderTab() {
+  const { settings, reload } = useSettings();
+  const [menu, setMenu] = useState<any[]>([]);
+  const [showCats, setShowCats] = useState(true);
+  const [cats, setCats] = useState<any[]>([]);
+  const [msg, setMsg] = useState('');
+  useEffect(() => { setMenu(parseMenu(settings.headerMenu, true)); setShowCats(settings.headerShowCategories !== 'false'); }, [settings]);
+  useEffect(() => { api('/categories').then(setCats); }, []);
+
+  const upd = (i: number, p: any) => setMenu(menu.map((m, k) => (k === i ? { ...m, ...p } : m)));
+  const move = (i: number, d: number) => {
+    const a = [...menu]; const j = i + d; if (j < 0 || j >= a.length) return;
+    [a[i], a[j]] = [a[j], a[i]]; setMenu(a);
+  };
+  const save = async () => {
+    await api('/admin/settings', { method: 'PATCH', body: { headerMenu: JSON.stringify(menu), headerShowCategories: String(showCats) } });
+    await Promise.all(cats.map((c) => api(`/admin/categories/${c.id}`, { method: 'PATCH', body: { showInHeader: c.showInHeader } })));
+    await reload(); siteChanged(); setMsg('Saved. Header updated.');
+  };
+
+  return (
+    <>
+      <div className="card">
+        <h3>Header pages and links</h3>
+        <p className="muted">Tick the pages you want in the header. Edit the name or path, and change the order with the arrows.</p>
+        {menu.map((m, i) => (
+          <div className="row hrow" key={m.id}>
+            <label><input type="checkbox" checked={m.show} onChange={(e) => upd(i, { show: e.target.checked })} /> Show</label>
+            <input placeholder="Label" value={m.label} onChange={(e) => upd(i, { label: e.target.value })} />
+            <input placeholder="/path or https://..." value={m.to} onChange={(e) => upd(i, { to: e.target.value })} />
+            <button className="btn sm ghost" onClick={() => move(i, -1)}>▲</button>
+            <button className="btn sm ghost" onClick={() => move(i, 1)}>▼</button>
+            <button className="btn sm danger" onClick={() => setMenu(menu.filter((_, k) => k !== i))}>Remove</button>
+          </div>
+        ))}
+        <button className="btn ghost" onClick={() => setMenu([...menu, { id: 'c' + Date.now(), label: 'New link', to: '/', show: true }])}>+ Add link</button>
+      </div>
+      <div className="card">
+        <h3>Categories in header</h3>
+        <label><input type="checkbox" checked={showCats} onChange={(e) => setShowCats(e.target.checked)} /> Show categories in header</label>
+        {showCats && cats.map((c, i) => (
+          <label className="line" key={c.id}>
+            <span>{c.name}</span>
+            <input type="checkbox" checked={c.showInHeader} onChange={(e) => setCats(cats.map((x, k) => (k === i ? { ...x, showInHeader: e.target.checked } : x)))} />
+          </label>
+        ))}
+        {cats.length === 0 && <p className="muted">No categories yet. Add them in the Categories tab.</p>}
+      </div>
+      <div className="row"><button className="btn" onClick={save}>Save header</button>{msg && <span className="ok">{msg}</span>}</div>
+    </>
+  );
+}
+
+// Courses page par konsi categories dikhani hain (alag panel)
+function CourseCategoriesTab() {
+  const [cats, setCats] = useState<any[]>([]);
+  const load = () => api('/categories').then(setCats);
+  useEffect(() => { load(); }, []);
+  const set = async (c: any, body: any) => { await api(`/admin/categories/${c.id}`, { method: 'PATCH', body }); await load(); siteChanged(); };
+  const move = async (i: number, d: number) => {
+    const a = [...cats]; const j = i + d; if (j < 0 || j >= a.length) return;
+    [a[i], a[j]] = [a[j], a[i]];
+    await Promise.all(a.map((c, k) => api(`/admin/categories/${c.id}`, { method: 'PATCH', body: { order: k + 1 } })));
+    await load(); siteChanged();
+  };
+  return (
+    <div className="card">
+      <h3>Categories on the Courses page</h3>
+      <p className="muted">Choose which categories appear as filters on the Courses page, and their order. Hidden categories still keep their courses under "All".</p>
+      {cats.length === 0 && <p className="muted">No categories yet.</p>}
+      {cats.map((c, i) => (
+        <div className="line" key={c.id}>
+          <label><input type="checkbox" checked={c.showInCourses} onChange={(e) => set(c, { showInCourses: e.target.checked })} /> {c.name}</label>
+          <span className="row"><button className="btn sm ghost" onClick={() => move(i, -1)}>▲</button><button className="btn sm ghost" onClick={() => move(i, 1)}>▼</button></span>
+        </div>
+      ))}
     </div>
   );
 }

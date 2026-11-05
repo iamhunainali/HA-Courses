@@ -1,0 +1,79 @@
+# Docker Swarm stack file. Deploy: docker stack deploy -c docker-stack.yml portal
+# Stack pehle se ho to update, na ho to create. Volumes external hain: stack update/remove par kabhi delete nahi hotay.
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${DB_USER:-portal}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-portal_pass_change_me}
+      POSTGRES_DB: ${DB_NAME:-portal}
+    volumes:
+      - portal_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-portal} -d ${DB_NAME:-portal}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: any
+        delay: 5s
+      update_config:
+        order: stop-first          # DB ek hi instance, volume share nahi hota
+      placement:
+        constraints: [node.role == manager]
+
+  backend:
+    image: learning-portal-backend:${IMAGE_TAG:-latest}
+    environment:
+      DATABASE_URL: postgresql://${DB_USER:-portal}:${DB_PASSWORD:-portal_pass_change_me}@db:5432/${DB_NAME:-portal}
+      JWT_SECRET: ${JWT_SECRET:-change_this_long_random_secret}
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@portal.com}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-Admin@12345}
+      UPLOAD_DIR: /data/uploads
+    volumes:
+      - portal_uploads:/data/uploads
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:3000/api/categories').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
+    deploy:
+      replicas: 1
+      restart_policy:               # db ready na ho to backend dobara try karta hai
+        condition: any
+        delay: 5s
+      update_config:
+        order: start-first          # naya container healthy ho tab purana band
+        failure_action: rollback    # naya version fail ho to khud purana wapis
+        monitor: 30s
+      rollback_config:
+        order: start-first
+      placement:
+        constraints: [node.role == manager]
+
+  frontend:
+    image: learning-portal-frontend:${IMAGE_TAG:-latest}
+    ports:
+      - "${WEB_PORT:-80}:80"
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: any
+        delay: 5s
+      update_config:
+        order: start-first
+        failure_action: rollback
+        monitor: 15s
+      rollback_config:
+        order: start-first
+
+volumes:
+  portal_pgdata:
+    external: true
+    name: learning-portal_portal_pgdata    # purane compose wale volumes: data wahi rehta hai
+  portal_uploads:
+    external: true
+    name: learning-portal_portal_uploads
