@@ -1,0 +1,47 @@
+name: learning-portal   # fixed project name: Jenkins kisi bhi workspace se chalaye, same stack + same volumes use hotay hain
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${DB_USER:-portal}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-portal_pass_change_me}
+      POSTGRES_DB: ${DB_NAME:-portal}
+    volumes:
+      - portal_pgdata:/var/lib/postgresql/data   # DB data yahan safe rehta hai
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-portal} -d ${DB_NAME:-portal}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  backend:
+    build: ./backend
+    image: learning-portal-backend:${IMAGE_TAG:-latest}      # CHANGED: tagged image (Jenkins build number)
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://${DB_USER:-portal}:${DB_PASSWORD:-portal_pass_change_me}@db:5432/${DB_NAME:-portal}
+      JWT_SECRET: ${JWT_SECRET:-change_this_long_random_secret}
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@portal.com}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-Admin@12345}
+      UPLOAD_DIR: /data/uploads
+    volumes:
+      - portal_uploads:/data/uploads             # videos, files, images yahan safe rehti hain
+
+  frontend:
+    build: ./frontend
+    image: learning-portal-frontend:${IMAGE_TAG:-latest}     # CHANGED: tagged image
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - "${WEB_PORT:-80}:80"
+
+# Named volumes: image rebuild / stack update par delete nahi hotay
+volumes:
+  portal_pgdata:
+  portal_uploads:
