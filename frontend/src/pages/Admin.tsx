@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react';
 import { api, media, upload } from '../api';
 import Progress from '../components/Progress';
+import HomepageBuilder from './HomepageBuilder';
 import { parseMenu, useSettings } from '../settings';
 
-const TABS = ['Overview', 'Courses', 'Videos', 'Slides', 'Categories', 'Header', 'Course categories', 'Reviews', 'Users', 'Enrollments', 'Messages', 'Settings'];
+const TABS = ['Overview', 'Homepage', 'Courses', 'Videos', 'Slides', 'Categories', 'Header', 'Course categories', 'Reviews', 'Users', 'Enrollments', 'Messages', 'Settings'];
 
 export default function Admin() {
   const [tab, setTab] = useState('Overview');
@@ -12,6 +13,7 @@ export default function Admin() {
       <h1>Admin panel</h1>
       <div className="filters">{TABS.map((t) => <button key={t} className={'chip' + (tab === t ? ' on' : '')} onClick={() => setTab(t)}>{t}</button>)}</div>
       {tab === 'Overview' && <Overview />}
+      {tab === 'Homepage' && <HomepageBuilder />}
       {tab === 'Courses' && <CoursesTab />}
       {tab === 'Videos' && <VideosTab />}
       {tab === 'Slides' && <SlidesTab />}

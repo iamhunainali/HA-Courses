@@ -259,6 +259,45 @@ export class AdminController {
   @Delete('enrollments/:id')
   async delEnrollment(@Param('id') id: string) { await this.db.enrollment.delete({ where: { id } }).catch(() => {}); return { ok: true }; }
 
+  // ----- Homepage builder -----
+  @Get('sections') adminSections() { return this.db.section.findMany({ orderBy: { order: 'asc' } }); }
+
+  @Post('sections')
+  async addSection(@Body() b: any) {
+    if (!b.type) throw new BadRequestException('Type required');
+    const count = await this.db.section.count();
+    return this.db.section.create({ data: { type: b.type, data: b.data || {}, visible: b.visible !== false, order: count + 1 } });
+  }
+
+  @Post('sections/bulk')
+  async bulkSections(@Body() b: any) {
+    const list = Array.isArray(b.sections) ? b.sections : [];
+    const start = await this.db.section.count();
+    await this.db.section.createMany({ data: list.map((s: any, i: number) => ({ type: s.type, data: s.data || {}, visible: s.visible !== false, order: start + i + 1 })) });
+    return { ok: true };
+  }
+
+  @Post('sections/reorder')
+  async reorderSections(@Body() b: any) {
+    const ids: string[] = Array.isArray(b.ids) ? b.ids : [];
+    await Promise.all(ids.map((id, i) => this.db.section.update({ where: { id }, data: { order: i + 1 } })));
+    return { ok: true };
+  }
+
+  @Patch('sections/:id')
+  editSection(@Param('id') id: string, @Body() b: any) {
+    return this.db.section.update({ where: { id }, data: { ...(b.data !== undefined ? { data: b.data } : {}), ...(typeof b.visible === 'boolean' ? { visible: b.visible } : {}) } });
+  }
+
+  @Delete('sections/:id') async delSection(@Param('id') id: string) { await this.db.section.delete({ where: { id } }).catch(() => {}); return { ok: true }; }
+
+  // Builder ke liye image upload (filename wapis milta hai)
+  @Post('upload') @UseInterceptors(FileInterceptor('file', store('public')))
+  uploadImage(@UploadedFile() f: any) {
+    if (!f) throw new BadRequestException('File required');
+    return { file: f.filename };
+  }
+
   // ----- Messages (notifications) -----
   @Post('message')
   async message(@Body() b: any) {

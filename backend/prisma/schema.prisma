@@ -117,3 +117,11 @@ model Setting {
   key   String @id
   value String
 }
+
+model Section {
+  id      String  @id @default(uuid())
+  type    String
+  data    Json
+  visible Boolean @default(true)
+  order   Int     @default(0)
+}

@@ -66,6 +66,13 @@ export class AppController implements OnModuleInit {
     return Object.fromEntries(rows.map((r) => [r.key, r.value]));
   }
 
+  // Homepage sections (admin builder se). configured=false -> frontend default layout dikhata hai
+  @Get('sections')
+  async sections() {
+    const all = await this.db.section.findMany({ orderBy: { order: 'asc' } });
+    return { configured: all.length > 0, sections: all.filter((s) => s.visible) };
+  }
+
   @Get('reviews')
   reviews() {
     return this.db.review.findMany({ where: { status: 'VISIBLE' }, orderBy: { createdAt: 'desc' }, take: 50, include: { user: { select: { name: true } } } });
