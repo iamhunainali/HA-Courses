@@ -2,9 +2,10 @@ import { useEffect, useState } from 'react';
 import { api, media, upload } from '../api';
 import Progress from '../components/Progress';
 import HomepageBuilder from './HomepageBuilder';
+import { UsersPanel, MessagesPanel, EnrollmentsPanel, PaymentsPanel, CheckoutPanel } from './AdminExtra';
 import { parseMenu, useSettings } from '../settings';
 
-const TABS = ['Overview', 'Homepage', 'Courses', 'Videos', 'Slides', 'Categories', 'Header', 'Course categories', 'Reviews', 'Users', 'Enrollments', 'Messages', 'Settings'];
+const TABS = ['Overview', 'Homepage', 'Courses', 'Videos', 'Slides', 'Categories', 'Header', 'Course categories', 'Reviews', 'Users', 'Payments', 'Checkout', 'Enrollments', 'Messages', 'Settings'];
 
 export default function Admin() {
   const [tab, setTab] = useState('Overview');
@@ -21,9 +22,11 @@ export default function Admin() {
       {tab === 'Header' && <HeaderTab />}
       {tab === 'Course categories' && <CourseCategoriesTab />}
       {tab === 'Reviews' && <ReviewsTab />}
-      {tab === 'Users' && <UsersTab />}
-      {tab === 'Messages' && <MessagesTab />}
-      {tab === 'Enrollments' && <EnrollmentsTab />}
+      {tab === 'Users' && <UsersPanel />}
+      {tab === 'Payments' && <PaymentsPanel />}
+      {tab === 'Checkout' && <CheckoutPanel />}
+      {tab === 'Messages' && <MessagesPanel />}
+      {tab === 'Enrollments' && <EnrollmentsPanel />}
       {tab === 'Settings' && <SettingsTab />}
     </div>
   );
@@ -83,7 +86,7 @@ function SlidesTab() {
 }
 
 function CoursesTab() {
-  const empty = { title: '', description: '', price: '0', categoryId: '', published: true };
+  const empty = { title: '', description: '', price: '0', categoryId: '', published: true, plan: 'FREE', durationDays: '0' };
   const [list, setList] = useState<any[]>([]);
   const [cats, setCats] = useState<any[]>([]);
   const [form, setForm] = useState<any>(empty);
@@ -102,7 +105,7 @@ function CoursesTab() {
     try { await upload(editId ? `/admin/courses/${editId}` : '/admin/courses', f, editId ? 'PATCH' : 'POST', setPct); setForm(empty); setEditId(null); setThumb(null); load(); } catch (e: any) { alert(e.message); }
     setPct(null);
   };
-  const edit = (c: any) => { setEditId(c.id); setForm({ title: c.title, description: c.description, price: String(c.price), categoryId: c.categoryId || '', published: c.published }); window.scrollTo(0, 0); };
+  const edit = (c: any) => { setEditId(c.id); setForm({ title: c.title, description: c.description, price: String(c.price), categoryId: c.categoryId || '', published: c.published, plan: c.plan || 'FREE', durationDays: String(c.durationDays || 0) }); window.scrollTo(0, 0); };
   const del = async (id: string) => { if (confirm('Delete course and all its videos?')) { await api(`/admin/courses/${id}`, { method: 'DELETE' }); load(); } };
 
   return (
@@ -112,7 +115,8 @@ function CoursesTab() {
         <input placeholder="Title" value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} />
         <textarea rows={4} placeholder="Description" value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} />
         <div className="row">
-          <input placeholder="Price (0 = free)" value={form.price} onChange={(e) => setForm({ ...form, price: e.target.value })} />
+          <select value={form.plan} onChange={(e) => setForm({ ...form, plan: e.target.value })}><option value="FREE">Free plan</option><option value="PREMIUM">Premium plan (checkout)</option></select>
+          {form.plan === 'PREMIUM' && <><input placeholder="Price" value={form.price} onChange={(e) => setForm({ ...form, price: e.target.value })} /><input placeholder="Access days (0 = lifetime)" value={form.durationDays} onChange={(e) => setForm({ ...form, durationDays: e.target.value })} /></>}
           <select value={form.categoryId} onChange={(e) => setForm({ ...form, categoryId: e.target.value })}><option value="">No category</option>{cats.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</select>
           <label><input type="checkbox" checked={form.published} onChange={(e) => setForm({ ...form, published: e.target.checked })} /> Published</label>
         </div>
@@ -123,7 +127,7 @@ function CoursesTab() {
       <div className="card">
         {list.map((c) => (
           <div className="line" key={c.id}>
-            <span><b>{c.title}</b> <small className="muted">{c._count.lessons} videos · {c._count.enrollments} students {!c.published && '· draft'}</small></span>
+            <span><b>{c.title}</b> {c.plan === 'PREMIUM' ? <small className="tag warn">Premium</small> : <small className="tag">Free</small>} <small className="muted">{c._count.lessons} videos · {c._count.enrollments} students {!c.published && '· draft'}</small></span>
             <span className="row"><button className="btn" onClick={() => setManaging(c)}>Videos & files</button><button className="btn ghost" onClick={() => edit(c)}>Edit</button><button className="btn danger" onClick={() => del(c.id)}>Delete</button></span>
           </div>
         ))}
@@ -358,6 +362,7 @@ function SettingsTab() {
       {field('reviewsTitle', 'Reviews section heading')}
       {field('footerText', 'Footer text')}
       {field('contactEmail', 'Contact email')}
+      {field('currency', 'Currency symbol (e.g. Rs, $)')}
       <label>Brand color <input type="color" className="colorpick" value={f.brandColor || '#0f6b5c'} onChange={(e) => setF({ ...f, brandColor: e.target.value })} /></label>
       <div className="row"><button className="btn" onClick={save}>Save settings</button>{msg && <span className="ok">{msg}</span>}</div>
     </div>

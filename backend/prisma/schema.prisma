@@ -31,6 +31,11 @@ model User {
   enrollments   Enrollment[]
   reviews       Review[]
   notifications Notification[]
+  lastSeen      DateTime?
+  loginCount    Int            @default(0)
+  failedLogins  Int            @default(0)
+  activities    Activity[]
+  payments      PaymentRequest[]
 }
 
 model Category {
@@ -49,11 +54,14 @@ model Course {
   price       Float        @default(0)
   thumbnail   String?
   published   Boolean      @default(true)
+  plan        String       @default("FREE")
+  durationDays Int         @default(0)
   createdAt   DateTime     @default(now())
   categoryId  String?
   category    Category?    @relation(fields: [categoryId], references: [id], onDelete: SetNull)
   lessons     Lesson[]
   enrollments Enrollment[]
+  payments    PaymentRequest[]
 }
 
 model Lesson {
@@ -82,6 +90,8 @@ model Enrollment {
   createdAt DateTime @default(now())
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   course    Course   @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  expiresAt  DateTime?
+  celebrated Boolean  @default(true)
 
   @@unique([userId, courseId])
 }
@@ -109,6 +119,7 @@ model Notification {
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   title     String
   message   String
+  sender    String?
   read      Boolean  @default(false)
   createdAt DateTime @default(now())
 }
@@ -124,4 +135,31 @@ model Section {
   data    Json
   visible Boolean @default(true)
   order   Int     @default(0)
+}
+
+model Activity {
+  id        String   @id @default(uuid())
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  email     String
+  type      String
+  ip        String?
+  agent     String?
+  createdAt DateTime @default(now())
+}
+
+model PaymentRequest {
+  id         String    @id @default(uuid())
+  userId     String
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  courseId   String
+  course     Course    @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  answers    Json
+  amount     Float     @default(0)
+  days       Int       @default(0)
+  status     String    @default("PENDING")
+  note       String?
+  createdAt  DateTime  @default(now())
+  dueAt      DateTime
+  reviewedAt DateTime?
 }

@@ -1,9 +1,9 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { api, media, upload } from '../api';
 import Progress from '../components/Progress';
 import { DEFAULT_SECTIONS } from '../homeDefaults';
 
-type F = { k: string; label: string; t: string; fields?: F[]; add?: string; opts?: string[]; ph?: string };
+export type F = { k: string; label: string; t: string; fields?: F[]; add?: string; opts?: string[]; ph?: string; multi?: string };
 const T = (k: string, label: string, ph?: string): F => ({ k, label, t: 'text', ph });
 const A = (k: string, label: string): F => ({ k, label, t: 'area' });
 const I = (k: string, label: string): F => ({ k, label, t: 'image' });
@@ -15,8 +15,11 @@ const SCHEMAS: Record<string, { label: string; fields: F[]; defaults: any }> = {
   hero: { label: 'Hero slider (big slides)', defaults: { slides: [{ title: 'New slide', subtitle: '', bg: 'linear-gradient(135deg,#0f3d4c,#0f6b5c)', color: '#ffffff' }] },
     fields: [L('slides', 'Slides', 'slide', [T('badge', 'Small badge'), T('title', 'Heading'), A('subtitle', 'Sub text'), A('bullets', 'Bullet points (one per line)'),
       T('buttonText', 'Button 1 text'), T('buttonLink', 'Button 1 ' + LINK), T('button2Text', 'Button 2 text'), T('button2Link', 'Button 2 ' + LINK),
-      I('image', 'Slide image (optional)'), T('bg', 'Background (color or CSS gradient)'), T('color', 'Text color')])] },
+      I('image', 'Side image (optional)'), I('bgImage', 'Background photo (optional, full width)'),
+      { k: 'overlay', label: 'Dark overlay on background photo', t: 'select', opts: ['medium', 'none', 'light', 'dark'] }, T('bg', 'Background (color or CSS gradient)'), T('color', 'Text color')])] },
   imageSlider: { label: 'Image slider (from Slides tab)', defaults: {}, fields: [] },
+  photoSlider: { label: 'Photo slider (upload your own photos)', defaults: { images: [] },
+    fields: [{ ...L('images', 'Photos (use the multi-select button to add many at once)', 'photo', [I('image', 'Photo'), T('caption', 'Caption'), T('link', LINK)]), multi: 'image' }] },
   stats: { label: 'Numbers strip', defaults: { items: [{ value: '100+', label: 'Courses' }] }, fields: [L('items', 'Numbers', 'number', [T('value', 'Value'), T('label', 'Label')]), ...BG] },
   chips: { label: 'Link pills (learning paths)', defaults: { title: 'Find your path', items: [{ label: 'Beginner', link: '/courses' }] },
     fields: [T('title', 'Heading'), A('subtitle', 'Sub text'), L('items', 'Pills', 'pill', [T('label', 'Label'), T('link', LINK)]), ...BG] },
@@ -57,6 +60,20 @@ function ImageField({ f, v, set }: { f: F; v: string; set: (x: string) => void }
   );
 }
 
+function MultiAdd({ field, arr, set }: { field: string; arr: any[]; set: (x: any) => void }) {
+  const [pct, setPct] = useState<number | null>(null);
+  const pick = async (files: FileList | null) => {
+    if (!files) return;
+    let cur = [...arr];
+    for (const file of Array.from(files)) {
+      const fd = new FormData(); fd.append('file', file); setPct(0);
+      try { const r = await upload('/admin/upload', fd, 'POST', setPct); cur = [...cur, { [field]: r.file }]; set(cur); } catch (e: any) { alert(e.message); }
+    }
+    setPct(null);
+  };
+  return <div className="fld"><span>Add many photos at once</span><input type="file" accept="image/*" multiple onChange={(e) => pick(e.target.files)} /><Progress pct={pct} label="Uploading photo" /></div>;
+}
+
 function Field({ f, v, set, cats }: { f: F; v: any; set: (x: any) => void; cats: any[] }) {
   if (f.t === 'list') {
     const arr: any[] = v || [];
@@ -72,6 +89,7 @@ function Field({ f, v, set, cats }: { f: F; v: any; set: (x: any) => void; cats:
           </div>
         ))}
         <button className="btn ghost sm" onClick={() => set([...arr, {}])}>+ Add {f.add || 'item'}</button>
+        {f.multi && <MultiAdd field={f.multi} arr={arr} set={set} />}
       </div>
     );
   }
@@ -89,7 +107,7 @@ function Field({ f, v, set, cats }: { f: F; v: any; set: (x: any) => void; cats:
     </label>
   );
 }
-function Fields({ fields, value, onChange, cats }: { fields: F[]; value: any; onChange: (v: any) => void; cats: any[] }) {
+export function Fields({ fields, value, onChange, cats }: { fields: F[]; value: any; onChange: (v: any) => void; cats: any[] }) {
   return <>{fields.map((f) => <Field key={f.k} f={f} v={value?.[f.k]} set={(x) => onChange({ ...value, [f.k]: x })} cats={cats} />)}</>;
 }
 
@@ -103,7 +121,17 @@ export default function HomepageBuilder() {
   const [type, setType] = useState('feature');
   const [msg, setMsg] = useState('');
 
-  const load = () => api('/admin/sections').then(setList);
+  const first = useRef(true);
+  // Pehli dafa khali ho to default layout khud load ho jata hai: wahi default page edit hota hai
+  const load = async () => {
+    let r = await api('/admin/sections');
+    if (r.length === 0 && first.current) {
+      await api('/admin/sections/bulk', { method: 'POST', body: { sections: DEFAULT_SECTIONS } });
+      r = await api('/admin/sections');
+    }
+    first.current = false;
+    setList(r);
+  };
   useEffect(() => { load(); api('/categories').then(setCats); }, []);
 
   const loadDefaults = async () => { await api('/admin/sections/bulk', { method: 'POST', body: { sections: DEFAULT_SECTIONS } }); load(); };

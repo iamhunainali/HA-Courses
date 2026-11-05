@@ -114,3 +114,18 @@ input[type=checkbox],input[type=range]{width:auto}
 .fld{display:block;margin:10px 0}.fld>span{display:block;font-size:.85rem;color:var(--muted)}
 .listf{margin:12px 0}.listf .item{border:1px dashed var(--line);padding:10px;border-radius:8px;margin:8px 0;background:#fafcfb}
 .sec-item.off{opacity:.6}.editor{border-top:1px solid var(--line);margin-top:10px;padding-top:6px}
+/* plans, checkout, presence, celebration */
+.dot{display:inline-block;width:9px;height:9px;border-radius:50%;background:#b8c4c0;margin-right:4px}.dot.on{background:#1fa463;box-shadow:0 0 0 3px #1fa46333}
+.checkout{display:grid;grid-template-columns:1fr 300px;gap:24px;align-items:start}.summary{position:sticky;top:80px}.total{font-size:1.8rem;font-weight:800;color:var(--brand)}
+.methods{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px;margin:12px 0}
+.timer{font-size:2.6rem;font-weight:800;letter-spacing:2px;color:var(--brand);font-variant-numeric:tabular-nums}
+.pendingbox{text-align:center;border-color:var(--accent)}.secnote{font-size:.85rem;margin-top:10px}
+.notice{background:#fff8e8;border-color:#f0d9a8}.answers{margin:10px 0;display:grid;gap:4px}
+.modal-back{position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:200;display:flex;align-items:center;justify-content:center;padding:16px}
+.modal{background:#fff;border-radius:16px;padding:32px;max-width:440px;width:100%;text-align:center;position:relative;overflow:hidden;animation:pop .35s}
+@keyframes pop{from{transform:scale(.85);opacity:0}to{transform:scale(1);opacity:1}}
+.confetti{position:absolute;inset:0;pointer-events:none}.confetti span{position:absolute;top:-24px;font-size:1.3rem;animation:fall linear infinite}
+@keyframes fall{to{transform:translateY(520px) rotate(360deg);opacity:.2}}
+.celebrate>*:not(.confetti){position:relative}.bigemoji{font-size:3.2rem}.cthumb{width:100%;max-height:150px;object-fit:cover;border-radius:10px}
+@media(max-width:800px){.checkout{grid-template-columns:1fr}.summary{position:static}}
+.slidelink{position:absolute;inset:0;display:block}

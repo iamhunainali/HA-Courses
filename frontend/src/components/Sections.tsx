@@ -19,6 +19,41 @@ function Head({ d }: any) {
   return <div className="shead">{d.title && <h2>{d.title}</h2>}{d.subtitle && <p className="sub">{d.subtitle}</p>}</div>;
 }
 
+const OV: any = { none: 0, light: 0.25, medium: 0.45, dark: 0.65 };
+function slideBg(s: any) {
+  const base: any = { background: s.bg || '#0f3d4c', color: s.color || '#fff' };
+  if (s.bgImage) {
+    const a = OV[s.overlay || 'medium'] ?? 0.45;
+    base.background = `linear-gradient(rgba(0,0,0,${a}),rgba(0,0,0,${a})), url(${media(s.bgImage)}) center/cover no-repeat`;
+  }
+  return base;
+}
+
+function PhotoSlider({ d }: any) {
+  const imgs: any[] = d.images || [];
+  const [i, setI] = useState(0);
+  useEffect(() => {
+    if (imgs.length < 2) return;
+    const t = setTimeout(() => setI((x) => (x + 1) % imgs.length), 5000);
+    return () => clearTimeout(t);
+  }, [i, imgs.length]);
+  if (!imgs.length) return null;
+  const go = (n: number) => setI((i + n + imgs.length) % imgs.length);
+  return (
+    <section className="slider">
+      {imgs.map((s, k) => {
+        const inner = (<><div className="bg" style={{ backgroundImage: `url(${media(s.image)})` }} /><img src={media(s.image)} alt={s.caption || ''} />{s.caption && <div className="cap">{s.caption}</div>}</>);
+        return <div key={k} className={'slide' + (k === i ? ' on' : '')}>{s.link ? <SmartLink to={s.link} className="slidelink">{inner}</SmartLink> : inner}</div>;
+      })}
+      {imgs.length > 1 && (<>
+        <button className="arrow l" onClick={() => go(-1)} aria-label="Previous">‹</button>
+        <button className="arrow r" onClick={() => go(1)} aria-label="Next">›</button>
+        <div className="dots">{imgs.map((_, k) => <span key={k} className={k === i ? 'on' : ''} onClick={() => setI(k)} />)}</div>
+      </>)}
+    </section>
+  );
+}
+
 function Hero({ d }: any) {
   const slides: any[] = d.slides || [];
   const [i, setI] = useState(0);
@@ -32,11 +67,11 @@ function Hero({ d }: any) {
   return (
     <section className="hero2">
       {slides.map((s, k) => (
-        <div key={k} className={'hslide' + (k === i ? ' on' : '')} style={{ background: s.bg || '#0f3d4c', color: s.color || '#fff' }}>
+        <div key={k} className={'hslide' + (k === i ? ' on' : '')} style={slideBg(s)}>
           <div className={'wrap hgrid' + (s.image ? '' : ' noimg')}>
             <div className="htext">
               {s.badge && <span className="hbadge">{s.badge}</span>}
-              <h1>{s.title}</h1>
+              {s.title && <h1>{s.title}</h1>}
               {s.subtitle && <p className="hsub">{s.subtitle}</p>}
               {lines(s.bullets).length > 0 && <ul className="hbul">{lines(s.bullets).map((b, j) => <li key={j}>{b}</li>)}</ul>}
               <div className="row">
@@ -153,6 +188,7 @@ function Block({ s }: any) {
   const d = s.data || {};
   if (s.type === 'hero') return <Hero d={d} />;
   if (s.type === 'imageSlider') return <Slideshow />;
+  if (s.type === 'photoSlider') return <PhotoSlider d={d} />;
   if (s.type === 'reviews') return <ReviewsStrip title={d.title} />;
   if (s.type === 'html') return <div dangerouslySetInnerHTML={{ __html: d.html || '' }} />;
   return (

@@ -13,7 +13,7 @@ export function useEnrollment() {
 
   const load = () => {
     if (!user) return setIds([]);
-    api('/my/enrollments').then((r) => setIds(r.map((c: any) => c.id))).catch(() => {});
+    api('/my/enrollments').then((r) => setIds(r.filter((c: any) => !c.enrollment?.expired).map((c: any) => c.id))).catch(() => {});
   };
   useEffect(() => {
     load();

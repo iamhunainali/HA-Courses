@@ -69,7 +69,7 @@ export default function Header() {
                   {notes.length === 0 && <p className="muted pad">No notifications yet.</p>}
                   {notes.map((n) => (
                     <div key={n.id} className={'note' + (n.read ? '' : ' unread')}>
-                      <strong>{n.title}</strong>
+                      <strong>{n.title}</strong>{n.sender && <small className="muted"> · from {n.sender}</small>}
                       <p>{n.message}</p>
                       <small>{new Date(n.createdAt).toLocaleString()}</small>
                     </div>

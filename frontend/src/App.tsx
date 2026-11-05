@@ -10,6 +10,8 @@ import Dashboard from './pages/Dashboard';
 import Learn from './pages/Learn';
 import ReviewsPage from './pages/ReviewsPage';
 import Admin from './pages/Admin';
+import Checkout from './pages/Checkout';
+import Celebrate from './components/Celebrate';
 
 function Protected({ children, admin }: { children: any; admin?: boolean }) {
   const { user, ready } = useAuth();
@@ -24,6 +26,7 @@ export default function App() {
   return (
     <div className="app">
       <Header />
+      <Celebrate />
       <main>
         <Routes>
           <Route path="/" element={<Home />} />
@@ -34,6 +37,7 @@ export default function App() {
           <Route path="/dashboard" element={<Protected><Dashboard /></Protected>} />
           <Route path="/learn/:id" element={<Protected><Learn /></Protected>} />
           <Route path="/reviews" element={<Protected><ReviewsPage /></Protected>} />
+          <Route path="/checkout/:id" element={<Protected><Checkout /></Protected>} />
           <Route path="/admin" element={<Protected admin><Admin /></Protected>} />
           <Route path="*" element={<Navigate to="/" />} />
         </Routes>

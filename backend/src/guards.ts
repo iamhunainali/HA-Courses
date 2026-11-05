@@ -16,6 +16,7 @@ export class AuthGuard implements CanActivate {
     if (!u) throw new UnauthorizedException('User not found');
     if (u.status === 'SUSPENDED') throw new ForbiddenException('Your account is suspended');
     req.user = u;
+    if (!u.lastSeen || Date.now() - u.lastSeen.getTime() > 30000) this.db.user.update({ where: { id: u.id }, data: { lastSeen: new Date() } }).catch(() => {});
     return true;
   }
 }

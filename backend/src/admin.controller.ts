@@ -1,5 +1,5 @@
 import {
-  BadRequestException, Body, ConflictException, Controller, Delete, ForbiddenException, Get, NotFoundException, Param, Patch, Post, Query,
+  BadRequestException, Body, ConflictException, Controller, Delete, ForbiddenException, Get, NotFoundException, Param, Patch, Post, Query, Res,
   UploadedFile, UseGuards, UseInterceptors,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
@@ -7,7 +7,8 @@ import * as bcrypt from 'bcryptjs';
 import { randomBytes, randomUUID } from 'crypto';
 import { unlink } from 'fs/promises';
 import { diskStorage } from 'multer';
-import { extname, join } from 'path';
+import { basename, extname, join } from 'path';
+import { DEFAULT_CHECKOUT } from './checkout.defaults';
 import { PrismaService } from './prisma.service';
 import { AdminGuard, AuthGuard } from './guards';
 
@@ -31,7 +32,9 @@ export class AdminController {
     const [users, courses, enrollments, reviews] = await Promise.all([
       this.db.user.count({ where: { role: 'USER' } }), this.db.course.count(), this.db.enrollment.count(), this.db.review.count(),
     ]);
-    return { users, courses, enrollments, reviews };
+    const pending = await this.db.paymentRequest.count({ where: { status: 'PENDING' } });
+    const online = await this.db.user.count({ where: { lastSeen: { gt: new Date(Date.now() - 120000) } } });
+    return { users, courses, enrollments, reviews, 'pending payments': pending, 'online now': online };
   }
 
   // ----- Categories -----
@@ -49,7 +52,7 @@ export class AdminController {
   createCourse(@Body() b: any, @UploadedFile() f: any) {
     if (!b.title || !b.description) throw new BadRequestException('Title and description required');
     return this.db.course.create({
-      data: { title: b.title, description: b.description, price: parseFloat(b.price) || 0, published: b.published !== 'false', categoryId: b.categoryId || null, thumbnail: f?.filename },
+      data: { title: b.title, description: b.description, price: parseFloat(b.price) || 0, published: b.published !== 'false', categoryId: b.categoryId || null, thumbnail: f?.filename, plan: b.plan === 'PREMIUM' ? 'PREMIUM' : 'FREE', durationDays: parseInt(b.durationDays) || 0 },
     });
   }
 
@@ -64,6 +67,8 @@ export class AdminController {
         title: b.title ?? c.title, description: b.description ?? c.description,
         price: b.price !== undefined ? parseFloat(b.price) || 0 : c.price,
         published: b.published !== undefined ? b.published !== 'false' : c.published,
+        plan: b.plan ? (b.plan === 'PREMIUM' ? 'PREMIUM' : 'FREE') : c.plan,
+        durationDays: b.durationDays !== undefined ? parseInt(b.durationDays) || 0 : c.durationDays,
         categoryId: b.categoryId !== undefined ? b.categoryId || null : c.categoryId,
         ...(f ? { thumbnail: f.filename } : {}),
       },
@@ -145,20 +150,27 @@ export class AdminController {
 
   // ----- Users -----
   @Get('users')
-  users(@Query('q') q?: string) {
-    return this.db.user.findMany({
+  async users(@Query('q') q?: string) {
+    const rows = await this.db.user.findMany({
       where: q ? { OR: [{ email: { contains: q, mode: 'insensitive' } }, { name: { contains: q, mode: 'insensitive' } }] } : {},
       orderBy: { createdAt: 'desc' },
-      select: { id: true, name: true, email: true, role: true, status: true, warnings: true, createdAt: true, lastLogin: true, _count: { select: { enrollments: true } } },
+      select: { id: true, name: true, email: true, role: true, status: true, warnings: true, createdAt: true, lastLogin: true, lastSeen: true, loginCount: true, failedLogins: true, _count: { select: { enrollments: true } } },
     });
+    return rows.map((u) => ({ ...u, online: !!u.lastSeen && Date.now() - u.lastSeen.getTime() < 120000 }));
   }
+
+  @Get('users/:id/activity')
+  userActivity(@Param('id') id: string) { return this.db.activity.findMany({ where: { userId: id }, orderBy: { createdAt: 'desc' }, take: 60 }); }
+
+  @Get('activity')
+  recentActivity() { return this.db.activity.findMany({ orderBy: { createdAt: 'desc' }, take: 100 }); }
 
   @Patch('users/:id/action')
   async userAction(@Param('id') id: string, @Body() b: any) {
     const u = await this.db.user.findUnique({ where: { id } });
     if (!u) throw new NotFoundException();
     if (u.role === 'SUPER_ADMIN') throw new ForbiddenException('Cannot act on super admin');
-    const note = (title: string, message: string) => this.db.notification.create({ data: { userId: id, title, message } });
+    const note = (title: string, message: string) => this.db.notification.create({ data: { userId: id, title, message, sender: b.sender || null } });
     switch (b.action) {
       case 'warn':
         await this.db.user.update({ where: { id }, data: { status: u.status === 'SUSPENDED' ? 'SUSPENDED' : 'WARNED', warnings: { increment: 1 } } });
@@ -193,7 +205,7 @@ export class AdminController {
   // ----- Site settings -----
   @Patch('settings')
   async saveSettings(@Body() b: any) {
-    const keys = ['siteName', 'tagline', 'footerText', 'coursesTitle', 'reviewsTitle', 'contactEmail', 'brandColor', 'headerMenu', 'headerShowCategories'];
+    const keys = ['siteName', 'tagline', 'footerText', 'coursesTitle', 'reviewsTitle', 'contactEmail', 'brandColor', 'headerMenu', 'headerShowCategories', 'currency'];
     for (const k of keys) {
       if (typeof b[k] === 'string') await this.db.setting.upsert({ where: { key: k }, update: { value: b[k] }, create: { key: k, value: b[k] } });
     }
@@ -250,7 +262,7 @@ export class AdminController {
     if (!c) throw new NotFoundException('Course not found');
     const where = { userId_courseId: { userId: u.id, courseId: id } };
     if (!(await this.db.enrollment.findUnique({ where }))) {
-      await this.db.enrollment.create({ data: { userId: u.id, courseId: id } });
+      await this.db.enrollment.create({ data: { userId: u.id, courseId: id, celebrated: false, expiresAt: parseInt(b.days) > 0 ? new Date(Date.now() + parseInt(b.days) * 86400000) : null } });
       await this.db.notification.create({ data: { userId: u.id, title: 'Course added', message: `You were enrolled in "${c.title}" by admin. Open your dashboard.` } });
     }
     return { ok: true };
@@ -298,6 +310,65 @@ export class AdminController {
     return { file: f.filename };
   }
 
+  // ----- Enrollment expiry -----
+  @Patch('enrollments/:id')
+  editEnrollment(@Param('id') id: string, @Body() b: any) {
+    const days = parseInt(b.days);
+    return this.db.enrollment.update({ where: { id }, data: { expiresAt: days > 0 ? new Date(Date.now() + days * 86400000) : null } });
+  }
+
+  // ----- Payment requests -----
+  @Get('payments')
+  payments(@Query('status') status?: string) {
+    return this.db.paymentRequest.findMany({
+      where: status ? { status } : {}, orderBy: { createdAt: 'desc' }, take: 200,
+      include: { user: { select: { id: true, name: true, email: true } }, course: { select: { id: true, title: true } } },
+    });
+  }
+
+  @Post('payments/:id/approve')
+  async approvePayment(@Param('id') id: string, @Body() b: any) {
+    const p = await this.db.paymentRequest.findUnique({ where: { id }, include: { course: true } });
+    if (!p) throw new NotFoundException();
+    if (p.status !== 'PENDING') throw new BadRequestException('Already reviewed');
+    const days = b.days !== undefined && b.days !== '' ? parseInt(b.days) || 0 : p.days;
+    const existing = await this.db.enrollment.findUnique({ where: { userId_courseId: { userId: p.userId, courseId: p.courseId } } });
+    const base = existing?.expiresAt && existing.expiresAt > new Date() ? existing.expiresAt : new Date();
+    const expiresAt = days > 0 ? new Date(base.getTime() + days * 86400000) : null;
+    if (existing) await this.db.enrollment.update({ where: { id: existing.id }, data: { expiresAt, celebrated: false } });
+    else await this.db.enrollment.create({ data: { userId: p.userId, courseId: p.courseId, expiresAt, celebrated: false } });
+    await this.db.paymentRequest.update({ where: { id }, data: { status: 'APPROVED', reviewedAt: new Date(), note: b.note || null } });
+    await this.db.notification.create({ data: { userId: p.userId, sender: 'Payments', title: 'Access granted', message: `Your payment was approved. You now have access to "${p.course.title}"${expiresAt ? ` until ${expiresAt.toDateString()}` : ''}.` } });
+    return { ok: true };
+  }
+
+  @Post('payments/:id/reject')
+  async rejectPayment(@Param('id') id: string, @Body() b: any) {
+    const p = await this.db.paymentRequest.findUnique({ where: { id }, include: { course: true } });
+    if (!p) throw new NotFoundException();
+    if (p.status !== 'PENDING') throw new BadRequestException('Already reviewed');
+    await this.db.paymentRequest.update({ where: { id }, data: { status: 'REJECTED', reviewedAt: new Date(), note: b.reason || null } });
+    await this.db.notification.create({ data: { userId: p.userId, sender: 'Payments', title: 'Payment not approved', message: `Your payment for "${p.course.title}" could not be verified.${b.reason ? ' Reason: ' + b.reason : ''} You can submit the form again.` } });
+    return { ok: true };
+  }
+
+  @Get('payment-files/:name')
+  paymentFile(@Param('name') name: string, @Res() res: any) { res.sendFile(join(UP, 'private', basename(name))); }
+
+  // ----- Checkout page editor -----
+  @Get('checkout')
+  async getCheckout() {
+    const row = await this.db.setting.findUnique({ where: { key: 'checkoutConfig' } });
+    try { return { ...DEFAULT_CHECKOUT, ...(row ? JSON.parse(row.value) : {}) }; } catch { return DEFAULT_CHECKOUT; }
+  }
+
+  @Patch('checkout')
+  async saveCheckout(@Body() b: any) {
+    const value = JSON.stringify(b.config || {});
+    await this.db.setting.upsert({ where: { key: 'checkoutConfig' }, update: { value }, create: { key: 'checkoutConfig', value } });
+    return { ok: true };
+  }
+
   // ----- Messages (notifications) -----
   @Post('message')
   async message(@Body() b: any) {
@@ -305,11 +376,11 @@ export class AdminController {
     if (b.email) {
       const u = await this.db.user.findUnique({ where: { email: String(b.email).trim().toLowerCase() } });
       if (!u) throw new NotFoundException('No user with this email');
-      await this.db.notification.create({ data: { userId: u.id, title: b.title, message: b.message } });
+      await this.db.notification.create({ data: { userId: u.id, title: b.title, message: b.message, sender: b.sender || null } });
       return { sent: 1 };
     }
     const all = await this.db.user.findMany({ where: { role: 'USER' }, select: { id: true } });
-    await this.db.notification.createMany({ data: all.map((u) => ({ userId: u.id, title: b.title, message: b.message })) });
+    await this.db.notification.createMany({ data: all.map((u) => ({ userId: u.id, title: b.title, message: b.message, sender: b.sender || null })) });
     return { sent: all.length };
   }
 }

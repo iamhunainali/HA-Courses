@@ -10,6 +10,7 @@ export const DEFAULT_SECTIONS: any[] = [
     { badge: 'Student voices', title: 'Learn with a community', subtitle: 'Read what our students say and share your own experience.',
       buttonText: 'Read reviews', buttonLink: '/reviews', bg: 'linear-gradient(135deg,#6b3300,#c2701a)', color: '#ffffff' },
   ] } },
+  { type: 'photoSlider', data: { images: [] } },
   { type: 'stats', data: { bg: '#ffffff', items: [
     { value: '10K+', label: 'Learners' }, { value: '100+', label: 'Courses' }, { value: '4.8/5', label: 'Average rating' }, { value: '24/7', label: 'Access' } ] } },
   { type: 'chips', data: { title: 'Find your learning path', subtitle: 'Choose what fits your level', items: [
