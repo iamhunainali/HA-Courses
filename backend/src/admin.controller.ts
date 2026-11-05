@@ -1,5 +1,5 @@
 import {
-  BadRequestException, Body, Controller, Delete, ForbiddenException, Get, NotFoundException, Param, Patch, Post, Query,
+  BadRequestException, Body, ConflictException, Controller, Delete, ForbiddenException, Get, NotFoundException, Param, Patch, Post, Query,
   UploadedFile, UseGuards, UseInterceptors,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
@@ -189,6 +189,68 @@ export class AdminController {
     }
     return { ok: true };
   }
+
+  // ----- Site settings -----
+  @Patch('settings')
+  async saveSettings(@Body() b: any) {
+    const keys = ['siteName', 'tagline', 'footerText', 'coursesTitle', 'reviewsTitle', 'contactEmail', 'brandColor'];
+    for (const k of keys) {
+      if (typeof b[k] === 'string') await this.db.setting.upsert({ where: { key: k }, update: { value: b[k] }, create: { key: k, value: b[k] } });
+    }
+    return { ok: true };
+  }
+
+  // ----- Edit endpoints -----
+  @Patch('categories/:id')
+  editCategory(@Param('id') id: string, @Body() b: any) {
+    const name = String(b.name || '').trim();
+    if (!name) throw new BadRequestException('Name required');
+    return this.db.category.update({ where: { id }, data: { name } });
+  }
+
+  @Patch('lessons/:id')
+  editLesson(@Param('id') id: string, @Body() b: any) {
+    return this.db.lesson.update({ where: { id }, data: { ...(b.title ? { title: b.title } : {}), ...(b.order !== undefined && b.order !== '' ? { order: parseInt(b.order) || 0 } : {}) } });
+  }
+
+  @Patch('slides/:id')
+  editSlide(@Param('id') id: string, @Body() b: any) {
+    return this.db.slide.update({ where: { id }, data: { ...(b.caption !== undefined ? { caption: b.caption || null } : {}), ...(b.order !== undefined ? { order: parseInt(b.order) || 0 } : {}) } });
+  }
+
+  @Patch('users/:id')
+  async editUser(@Param('id') id: string, @Body() b: any) {
+    const u = await this.db.user.findUnique({ where: { id } });
+    if (!u) throw new NotFoundException();
+    if (u.role === 'SUPER_ADMIN') throw new ForbiddenException('Cannot edit super admin');
+    const email = b.email ? String(b.email).trim().toLowerCase() : u.email;
+    try {
+      return await this.db.user.update({ where: { id }, data: { name: b.name?.trim() || u.name, email }, select: { id: true } });
+    } catch { throw new ConflictException('Email already used'); }
+  }
+
+  // ----- Enrollments (admin kisi ko bhi enroll / remove kar sakta hai) -----
+  @Get('courses/:id/enrollments')
+  courseEnrollments(@Param('id') id: string) {
+    return this.db.enrollment.findMany({ where: { courseId: id }, orderBy: { createdAt: 'desc' }, include: { user: { select: { id: true, name: true, email: true } } } });
+  }
+
+  @Post('courses/:id/enrollments')
+  async addEnrollment(@Param('id') id: string, @Body() b: any) {
+    const u = await this.db.user.findUnique({ where: { email: String(b.email || '').trim().toLowerCase() } });
+    if (!u) throw new NotFoundException('No user with this email');
+    const c = await this.db.course.findUnique({ where: { id } });
+    if (!c) throw new NotFoundException('Course not found');
+    const where = { userId_courseId: { userId: u.id, courseId: id } };
+    if (!(await this.db.enrollment.findUnique({ where }))) {
+      await this.db.enrollment.create({ data: { userId: u.id, courseId: id } });
+      await this.db.notification.create({ data: { userId: u.id, title: 'Course added', message: `You were enrolled in "${c.title}" by admin. Open your dashboard.` } });
+    }
+    return { ok: true };
+  }
+
+  @Delete('enrollments/:id')
+  async delEnrollment(@Param('id') id: string) { await this.db.enrollment.delete({ where: { id } }).catch(() => {}); return { ok: true }; }
 
   // ----- Messages (notifications) -----
   @Post('message')

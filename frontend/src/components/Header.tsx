@@ -2,9 +2,11 @@ import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { api } from '../api';
 import { useAuth } from '../auth';
+import { useSettings } from '../settings';
 
 export default function Header() {
   const { user, logout } = useAuth();
+  const { settings } = useSettings();
   const nav = useNavigate();
   const [cats, setCats] = useState<any[]>([]);
   const [enrolled, setEnrolled] = useState(0);
@@ -33,7 +35,7 @@ export default function Header() {
 
   return (
     <header className="header">
-      <Link to="/" className="logo">Learning Portal</Link>
+      <Link to="/" className="logo">{settings.siteName}</Link>
       <nav className="cats">
         <Link to="/courses">Courses</Link>
         {cats.map((c) => (

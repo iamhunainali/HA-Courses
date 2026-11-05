@@ -59,6 +59,13 @@ export class AppController implements OnModuleInit {
   @Get('categories') categories() { return this.db.category.findMany({ orderBy: { name: 'asc' } }); }
   @Get('slides') slides() { return this.db.slide.findMany({ orderBy: { order: 'asc' } }); }
 
+  // Site settings (name, tagline, footer, colors) - public
+  @Get('settings')
+  async settings() {
+    const rows = await this.db.setting.findMany();
+    return Object.fromEntries(rows.map((r) => [r.key, r.value]));
+  }
+
   @Get('reviews')
   reviews() {
     return this.db.review.findMany({ where: { status: 'VISIBLE' }, orderBy: { createdAt: 'desc' }, take: 50, include: { user: { select: { name: true } } } });

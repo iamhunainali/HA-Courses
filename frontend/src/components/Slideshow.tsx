@@ -1,7 +1,9 @@
 import { useEffect, useState } from 'react';
 import { api, media } from '../api';
+import { useSettings } from '../settings';
 
 export default function Slideshow() {
+  const { settings } = useSettings();
   const [slides, setSlides] = useState<any[]>([]);
   const [i, setI] = useState(0);
   useEffect(() => { api('/slides').then(setSlides).catch(() => {}); }, []);
@@ -14,7 +16,7 @@ export default function Slideshow() {
   if (!slides.length)
     return (
       <section className="hero-empty">
-        <h1>Learn at your own pace</h1>
+        <h1>{settings.tagline}</h1>
         <p>Sign up to explore courses and start watching.</p>
       </section>
     );

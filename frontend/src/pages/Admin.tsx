@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react';
 import { api, media, upload } from '../api';
 import Progress from '../components/Progress';
+import { useSettings } from '../settings';
 
-const TABS = ['Overview', 'Courses', 'Videos', 'Slides', 'Categories', 'Reviews', 'Users', 'Messages'];
+const TABS = ['Overview', 'Courses', 'Videos', 'Slides', 'Categories', 'Reviews', 'Users', 'Enrollments', 'Messages', 'Settings'];
 
 export default function Admin() {
   const [tab, setTab] = useState('Overview');
@@ -18,6 +19,8 @@ export default function Admin() {
       {tab === 'Reviews' && <ReviewsTab />}
       {tab === 'Users' && <UsersTab />}
       {tab === 'Messages' && <MessagesTab />}
+      {tab === 'Enrollments' && <EnrollmentsTab />}
+      {tab === 'Settings' && <SettingsTab />}
     </div>
   );
 }
@@ -34,11 +37,12 @@ function CategoriesTab() {
   const load = () => api('/categories').then(setList);
   useEffect(() => { load(); }, []);
   const add = async () => { if (name.trim()) { await api('/admin/categories', { method: 'POST', body: { name } }).catch((e) => alert(e.message)); setName(''); load(); } };
+  const rename = async (c: any) => { const name = prompt('Category name', c.name); if (name && name.trim()) { await api(`/admin/categories/${c.id}`, { method: 'PATCH', body: { name } }).catch((e) => alert(e.message)); load(); } };
   const del = async (id: string) => { if (confirm('Delete category?')) { await api(`/admin/categories/${id}`, { method: 'DELETE' }); load(); } };
   return (
     <div className="card">
       <div className="row"><input placeholder="New category" value={name} onChange={(e) => setName(e.target.value)} /><button className="btn" onClick={add}>Add</button></div>
-      {list.map((c) => <div className="line" key={c.id}><span>{c.name}</span><button className="btn danger" onClick={() => del(c.id)}>Delete</button></div>)}
+      {list.map((c) => <div className="line" key={c.id}><span>{c.name}</span><span className="row"><button className="btn ghost" onClick={() => rename(c)}>Rename</button><button className="btn danger" onClick={() => del(c.id)}>Delete</button></span></div>)}
     </div>
   );
 }
@@ -57,12 +61,19 @@ function SlidesTab() {
     try { await upload('/admin/slides', f, 'POST', setPct); setFile(null); setCaption(''); load(); } catch (e: any) { alert(e.message); }
     setPct(null);
   };
+  const editCap = async (s: any) => { const c = prompt('Caption', s.caption || ''); if (c !== null) { await api(`/admin/slides/${s.id}`, { method: 'PATCH', body: { caption: c } }); load(); } };
+  const move = async (i: number, d: number) => {
+    const a = [...list]; const j = i + d; if (j < 0 || j >= a.length) return;
+    [a[i], a[j]] = [a[j], a[i]];
+    await Promise.all(a.map((s, k) => api(`/admin/slides/${s.id}`, { method: 'PATCH', body: { order: k + 1 } })));
+    load();
+  };
   const del = async (id: string) => { await api(`/admin/slides/${id}`, { method: 'DELETE' }); load(); };
   return (
     <div className="card">
       <div className="row"><input type="file" accept="image/*" onChange={(e) => setFile(e.target.files?.[0] || null)} /><input placeholder="Caption (optional)" value={caption} onChange={(e) => setCaption(e.target.value)} /><button className="btn" onClick={add}>Upload slide</button></div>
       <Progress pct={pct} />
-      <div className="grid small">{list.map((s) => <div key={s.id} className="mini"><img src={media(s.image)} alt="" /><button className="btn danger" onClick={() => del(s.id)}>Delete</button></div>)}</div>
+      <div className="grid small">{list.map((s, i) => <div key={s.id} className="mini"><img src={media(s.image)} alt="" /><small className="muted">{s.caption || 'No caption'}</small><div className="row"><button className="btn sm ghost" onClick={() => move(i, -1)}>◀</button><button className="btn sm ghost" onClick={() => move(i, 1)}>▶</button><button className="btn sm ghost" onClick={() => editCap(s)}>Caption</button><button className="btn sm danger" onClick={() => del(s.id)}>Delete</button></div></div>)}</div>
     </div>
   );
 }
@@ -140,6 +151,7 @@ function Lessons({ course, onClose }: { course: any; onClose?: () => void }) {
     try { await upload(`/admin/lessons/${lid}/files`, f, 'POST', (n) => setFpct({ id: lid, n })); load(); } catch (e: any) { alert(e.message); }
     setFpct(null);
   };
+  const editL = async (l: any) => { const t = prompt('Video title', l.title); if (t === null) return; const o = prompt('Order number', String(l.order)); await api(`/admin/lessons/${l.id}`, { method: 'PATCH', body: { title: t, order: o } }); load(); };
   const delL = async (id: string) => { if (confirm('Delete video?')) { await api(`/admin/lessons/${id}`, { method: 'DELETE' }); load(); } };
   const delF = async (id: string) => { await api(`/admin/files/${id}`, { method: 'DELETE' }); load(); };
 
@@ -150,7 +162,7 @@ function Lessons({ course, onClose }: { course: any; onClose?: () => void }) {
       <Progress pct={pct} label="Uploading video" />
       {list.map((l) => (
         <div className="lesson" key={l.id}>
-          <div className="line"><b>{l.order}. {l.title}</b><button className="btn danger" onClick={() => delL(l.id)}>Delete</button></div>
+          <div className="line"><b>{l.order}. {l.title}</b><span className="row"><button className="btn sm ghost" onClick={() => editL(l)}>Edit</button><button className="btn sm danger" onClick={() => delL(l.id)}>Delete</button></span></div>
           {l.files.map((f: any) => <div className="line sub" key={f.id}><span>📎 {f.name}</span><button className="btn danger" onClick={() => delF(f.id)}>Remove</button></div>)}
           <label className="muted">Add notes/file (optional): <input type="file" onChange={(e) => e.target.files?.[0] && addFile(l.id, e.target.files[0])} /></label>
           {fpct?.id === l.id && <Progress pct={fpct.n} label="Uploading file" />}
@@ -206,6 +218,11 @@ function UsersTab() {
       load();
     } catch (e: any) { alert(e.message); }
   };
+  const editU = async (u: any) => {
+    const name = prompt('Name', u.name); if (name === null) return;
+    const email = prompt('Email', u.email); if (email === null) return;
+    try { await api(`/admin/users/${u.id}`, { method: 'PATCH', body: { name, email } }); load(); } catch (e: any) { alert(e.message); }
+  };
   const msg = async (u: any) => {
     const title = prompt('Message title:'); if (!title) return;
     const message = prompt('Message:'); if (!message) return;
@@ -228,6 +245,7 @@ function UsersTab() {
                 <td>
                   {u.role !== 'SUPER_ADMIN' && (
                     <div className="row">
+                      <button className="btn sm" onClick={() => editU(u)}>Edit</button>
                       <button className="btn sm" onClick={() => msg(u)}>Message</button>
                       <button className="btn sm ghost" onClick={() => act(u, 'warn')}>Warn</button>
                       {u.status === 'SUSPENDED' ? <button className="btn sm" onClick={() => act(u, 'activate')}>Activate</button> : <button className="btn sm ghost" onClick={() => act(u, 'suspend')}>Suspend</button>}
@@ -281,6 +299,63 @@ function VideosTab() {
         <p className="muted">Uploaded videos and files appear in the dashboard of every enrolled student.</p>
       </div>
       {course && <Lessons key={course.id} course={course} />}
+    </div>
+  );
+}
+
+// Admin kisi bhi course mein student add / remove kar sakta hai
+function EnrollmentsTab() {
+  const [courses, setCourses] = useState<any[]>([]);
+  const [sel, setSel] = useState('');
+  const [list, setList] = useState<any[]>([]);
+  const [email, setEmail] = useState('');
+  const [msg, setMsg] = useState('');
+  useEffect(() => { api('/admin/courses').then(setCourses); }, []);
+  const load = () => (sel ? api(`/admin/courses/${sel}/enrollments`).then(setList) : setList([]));
+  useEffect(() => { load(); }, [sel]);
+  const add = async () => {
+    try { await api(`/admin/courses/${sel}/enrollments`, { method: 'POST', body: { email } }); setEmail(''); setMsg(''); load(); } catch (e: any) { setMsg(e.message); }
+  };
+  const remove = async (id: string) => { if (confirm('Remove this student from the course?')) { await api(`/admin/enrollments/${id}`, { method: 'DELETE' }); load(); } };
+  return (
+    <div className="card">
+      <select value={sel} onChange={(e) => setSel(e.target.value)}>
+        <option value="">Select a course</option>
+        {courses.map((c) => <option key={c.id} value={c.id}>{c.title} ({c._count.enrollments})</option>)}
+      </select>
+      {sel && (
+        <>
+          <div className="row"><input placeholder="Student email to enroll" value={email} onChange={(e) => setEmail(e.target.value)} /><button className="btn" onClick={add}>Enroll student</button></div>
+          {msg && <p className="err">{msg}</p>}
+          {list.length === 0 && <p className="muted">No students enrolled yet.</p>}
+          {list.map((e) => <div className="line" key={e.id}><span>{e.user.name} <small className="muted">{e.user.email}</small></span><button className="btn sm danger" onClick={() => remove(e.id)}>Remove</button></div>)}
+        </>
+      )}
+    </div>
+  );
+}
+
+// Portal ka naam, tagline, footer, headings, contact, color
+function SettingsTab() {
+  const { settings, reload } = useSettings();
+  const [f, setF] = useState<any>(settings);
+  const [msg, setMsg] = useState('');
+  useEffect(() => { setF(settings); }, [settings]);
+  const field = (k: string, label: string) => (
+    <label key={k}>{label}<input value={f[k] || ''} onChange={(e) => setF({ ...f, [k]: e.target.value })} /></label>
+  );
+  const save = async () => { await api('/admin/settings', { method: 'PATCH', body: f }); await reload(); setMsg('Saved'); };
+  return (
+    <div className="card">
+      <h3>Portal settings</h3>
+      {field('siteName', 'Portal name')}
+      {field('tagline', 'Homepage tagline (shown when no slides)')}
+      {field('coursesTitle', 'Courses section heading')}
+      {field('reviewsTitle', 'Reviews section heading')}
+      {field('footerText', 'Footer text')}
+      {field('contactEmail', 'Contact email')}
+      <label>Brand color <input type="color" className="colorpick" value={f.brandColor || '#0f6b5c'} onChange={(e) => setF({ ...f, brandColor: e.target.value })} /></label>
+      <div className="row"><button className="btn" onClick={save}>Save settings</button>{msg && <span className="ok">{msg}</span>}</div>
     </div>
   );
 }
