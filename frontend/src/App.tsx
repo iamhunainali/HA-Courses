@@ -29,7 +29,7 @@ export default function App() {
           <Route path="/" element={<Home />} />
           <Route path="/login" element={<AuthPage mode="login" />} />
           <Route path="/signup" element={<AuthPage mode="signup" />} />
-          <Route path="/courses" element={<Protected><Courses /></Protected>} />
+          <Route path="/courses" element={<Courses />} />
           <Route path="/course/:id" element={<CourseDetail />} />
           <Route path="/dashboard" element={<Protected><Dashboard /></Protected>} />
           <Route path="/learn/:id" element={<Protected><Learn /></Protected>} />

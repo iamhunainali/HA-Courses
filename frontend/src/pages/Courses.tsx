@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { api } from '../api';
+import { useEnrollment } from '../enroll';
 import CourseCard from './CourseCard';
 
 export default function Courses() {
@@ -9,6 +10,7 @@ export default function Courses() {
   const [q, setQ] = useState('');
   const [cats, setCats] = useState<any[]>([]);
   const [list, setList] = useState<any[] | null>(null);
+  const { enroll, enrolled } = useEnrollment();
 
   useEffect(() => { api('/categories').then(setCats); }, []);
   useEffect(() => {
@@ -26,7 +28,7 @@ export default function Courses() {
         {cats.map((c) => <button key={c.id} className={'chip' + (category === c.id ? ' on' : '')} onClick={() => setSp({ category: c.id })}>{c.name}</button>)}
       </div>
       {list === null ? <p>Loading…</p> : list.length === 0 ? <p className="muted">No courses found.</p> : (
-        <div className="grid">{list.map((c) => <CourseCard key={c.id} c={c} to={`/course/${c.id}`} />)}</div>
+        <div className="grid">{list.map((c) => <CourseCard key={c.id} c={c} enrolled={enrolled(c.id)} onEnroll={() => enroll(c.id)} />)}</div>
       )}
     </div>
   );

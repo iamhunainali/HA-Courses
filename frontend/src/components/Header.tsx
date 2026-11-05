@@ -14,12 +14,16 @@ export default function Header() {
 
   const loadNotes = () => api('/notifications').then(setNotes).catch(() => {});
   useEffect(() => { api('/categories').then(setCats).catch(() => {}); }, []);
+  const loadEnrolled = () => api('/my/enrollments').then((r) => setEnrolled(r.length)).catch(() => {});
   useEffect(() => {
     if (!user) { setEnrolled(0); setNotes([]); return; }
-    api('/my/enrollments').then((r) => setEnrolled(r.length)).catch(() => {});
+    loadEnrolled();
     loadNotes();
     const t = setInterval(loadNotes, 30000);
-    return () => clearInterval(t);
+    // enroll hote hi Dashboard icon aur notification foran update
+    const onEnrolled = () => { loadEnrolled(); loadNotes(); };
+    window.addEventListener('enrolled-changed', onEnrolled);
+    return () => { clearInterval(t); window.removeEventListener('enrolled-changed', onEnrolled); };
   }, [user]);
 
   const toggleBell = async () => {
@@ -31,6 +35,7 @@ export default function Header() {
     <header className="header">
       <Link to="/" className="logo">Learning Portal</Link>
       <nav className="cats">
+        <Link to="/courses">Courses</Link>
         {cats.map((c) => (
           <Link key={c.id} to={`/courses?category=${c.id}`}>{c.name}</Link>
         ))}
@@ -44,7 +49,6 @@ export default function Header() {
           </>
         ) : (
           <>
-            <Link to="/courses" className="navlink">Courses</Link>
             {(enrolled > 0 || user.role === 'SUPER_ADMIN') && (
               <Link to="/dashboard" className="icon" title="Dashboard">🎓<span className="lbl">Dashboard</span></Link>
             )}

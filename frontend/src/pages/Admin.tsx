@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { api, media, upload } from '../api';
 import Progress from '../components/Progress';
 
-const TABS = ['Overview', 'Courses', 'Slides', 'Categories', 'Reviews', 'Users', 'Messages'];
+const TABS = ['Overview', 'Courses', 'Videos', 'Slides', 'Categories', 'Reviews', 'Users', 'Messages'];
 
 export default function Admin() {
   const [tab, setTab] = useState('Overview');
@@ -12,6 +12,7 @@ export default function Admin() {
       <div className="filters">{TABS.map((t) => <button key={t} className={'chip' + (tab === t ? ' on' : '')} onClick={() => setTab(t)}>{t}</button>)}</div>
       {tab === 'Overview' && <Overview />}
       {tab === 'Courses' && <CoursesTab />}
+      {tab === 'Videos' && <VideosTab />}
       {tab === 'Slides' && <SlidesTab />}
       {tab === 'Categories' && <CategoriesTab />}
       {tab === 'Reviews' && <ReviewsTab />}
@@ -117,7 +118,7 @@ function CoursesTab() {
   );
 }
 
-function Lessons({ course, onClose }: { course: any; onClose: () => void }) {
+function Lessons({ course, onClose }: { course: any; onClose?: () => void }) {
   const [list, setList] = useState<any[]>([]);
   const [title, setTitle] = useState('');
   const [video, setVideo] = useState<File | null>(null);
@@ -144,7 +145,7 @@ function Lessons({ course, onClose }: { course: any; onClose: () => void }) {
 
   return (
     <div className="card manage">
-      <div className="line"><h3>Videos: {course.title}</h3><button className="btn ghost" onClick={onClose}>Close</button></div>
+      <div className="line"><h3>Videos: {course.title}</h3>{onClose && <button className="btn ghost" onClick={onClose}>Close</button>}</div>
       <div className="row"><input placeholder="Video title" value={title} onChange={(e) => setTitle(e.target.value)} /><input type="file" accept="video/*" onChange={(e) => setVideo(e.target.files?.[0] || null)} /><button className="btn" onClick={add}>Upload video</button></div>
       <Progress pct={pct} label="Uploading video" />
       {list.map((l) => (
@@ -259,6 +260,27 @@ function MessagesTab() {
       <textarea rows={3} placeholder="Message" value={f.message} onChange={(e) => setF({ ...f, message: e.target.value })} />
       <button className="btn" onClick={send}>Send</button>
       {res && <p className="muted">{res}</p>}
+    </div>
+  );
+}
+
+// Videos tab: course select karo, video + notes upload karo -> enrolled users ke dashboard mein show hoga
+function VideosTab() {
+  const [courses, setCourses] = useState<any[]>([]);
+  const [sel, setSel] = useState('');
+  useEffect(() => { api('/admin/courses').then(setCourses); }, []);
+  const course = courses.find((c) => c.id === sel);
+  return (
+    <div>
+      <div className="card">
+        <h3>Upload videos and notes</h3>
+        <select value={sel} onChange={(e) => setSel(e.target.value)}>
+          <option value="">Select a course</option>
+          {courses.map((c) => <option key={c.id} value={c.id}>{c.title}</option>)}
+        </select>
+        <p className="muted">Uploaded videos and files appear in the dashboard of every enrolled student.</p>
+      </div>
+      {course && <Lessons key={course.id} course={course} />}
     </div>
   );
 }

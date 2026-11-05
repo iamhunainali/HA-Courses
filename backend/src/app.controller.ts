@@ -64,7 +64,7 @@ export class AppController implements OnModuleInit {
     return this.db.review.findMany({ where: { status: 'VISIBLE' }, orderBy: { createdAt: 'desc' }, take: 50, include: { user: { select: { name: true } } } });
   }
 
-  // Course details public (videos nahi); list sirf login ke baad
+  // Course list + details public (videos nahi, wo sirf enrolled users ko)
   @Get('courses/:id')
   async courseDetail(@Param('id') id: string) {
     const c = await this.db.course.findFirst({ where: { id, published: true }, include: { category: true, _count: { select: { lessons: true, enrollments: true } } } });
@@ -73,7 +73,7 @@ export class AppController implements OnModuleInit {
   }
 
   // ---------- Logged-in ----------
-  @UseGuards(AuthGuard) @Get('courses')
+  @Get('courses')
   courses(@Query() q: any) {
     return this.db.course.findMany({
       where: {
