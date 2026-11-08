@@ -14,8 +14,13 @@ export class AuthGuard implements CanActivate {
     try { p = this.jwt.verify(token); } catch { throw new UnauthorizedException('Session expired'); }
     const u = await this.db.user.findUnique({ where: { id: p.sub } });
     if (!u) throw new UnauthorizedException('User not found');
-    if (u.status === 'SUSPENDED') throw new ForbiddenException('Your account is suspended');
-    req.user = u;
+    let user = u;
+    // 1 ghante (ya admin ka set kiya hua time) guzarne par account khud normal
+    if (user.status === 'SUSPENDED' && user.suspendedUntil && user.suspendedUntil <= new Date())
+      user = await this.db.user.update({ where: { id: u.id }, data: { status: 'ACTIVE', suspendedUntil: null, suspendReason: null, failedStreak: 0 } });
+    if (user.status === 'SUSPENDED')
+      throw new ForbiddenException({ statusCode: 403, message: 'Your account is suspended.', code: 'SUSPENDED', until: user.suspendedUntil, reason: user.suspendReason });
+    req.user = user;
     if (!u.lastSeen || Date.now() - u.lastSeen.getTime() > 30000) this.db.user.update({ where: { id: u.id }, data: { lastSeen: new Date() } }).catch(() => {});
     return true;
   }

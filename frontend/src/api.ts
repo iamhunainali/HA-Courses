@@ -10,7 +10,12 @@ export async function api<T = any>(path: string, opts: { method?: string; body?:
   else if (opts.body) { h['Content-Type'] = 'application/json'; body = JSON.stringify(opts.body); }
   const r = await fetch('/api' + path, { method: opts.method || 'GET', headers: h, body });
   const d = await r.json().catch(() => ({}));
-  if (!r.ok) throw new Error(Array.isArray(d.message) ? d.message.join(', ') : d.message || 'Something went wrong');
+  if (!r.ok) {
+    if (d.code === 'SUSPENDED') window.dispatchEvent(new CustomEvent('suspended', { detail: d }));   // warning popup
+    const e: any = new Error(Array.isArray(d.message) ? d.message.join(', ') : d.message || 'Something went wrong');
+    e.status = r.status; e.data = d;
+    throw e;
+  }
   return d;
 }
 

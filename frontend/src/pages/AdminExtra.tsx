@@ -1,6 +1,7 @@
 import { Fragment, useEffect, useState } from 'react';
 import { api, token } from '../api';
 import { Fields, F } from './HomepageBuilder';
+import { useStored } from '../useStored';
 
 const ago = (d?: string) => {
   if (!d) return 'never';
@@ -28,14 +29,15 @@ export function UsersPanel() {
   useEffect(() => { const t = setTimeout(load, 250); const i = setInterval(load, 30000); return () => { clearTimeout(t); clearInterval(i); }; }, [q]);
 
   const act = async (u: any, action: string) => {
-    let reason = '', sender: string | null = '';
+    let reason = '', sender: string | null = '', minutes = '60';
     if (action === 'warn' || action === 'suspend') {
       const r = prompt(`Reason for ${action} (user will see this):`, ''); if (r === null) return; reason = r;
       sender = askSender(); if (sender === null) return;
+      if (action === 'suspend') { const m = prompt('Suspend for how many minutes? (60 = 1 hour, 0 = until you activate it manually)', '60'); if (m === null) return; minutes = m; }
     }
     if (action === 'delete' && !confirm(`Delete ${u.email} permanently?`)) return;
     try {
-      const r = await api(`/admin/users/${u.id}/action`, { method: 'PATCH', body: { action, reason, sender } });
+      const r = await api(`/admin/users/${u.id}/action`, { method: 'PATCH', body: { action, reason, sender, minutes } });
       if (r.tempPassword) alert(`Temporary password for ${u.email}: ${r.tempPassword}`);
       load();
     } catch (e: any) { alert(e.message); }
@@ -73,7 +75,7 @@ export function UsersPanel() {
                 <tr>
                   <td><b>{u.name}</b><br /><small className="muted">{u.email}</small></td>
                   <td><span className={'dot ' + (u.online ? 'on' : '')} /> {u.online ? 'Online' : `Offline · ${ago(u.lastSeen || u.lastLogin)}`}</td>
-                  <td><span className={'tag s-' + u.status}>{u.role === 'SUPER_ADMIN' ? 'ADMIN' : u.status}</span>{u.warnings > 0 && <small> ⚠ {u.warnings}</small>}</td>
+                  <td><span className={'tag s-' + u.status}>{u.role === 'SUPER_ADMIN' ? 'ADMIN' : u.status}</span>{u.warnings > 0 && <small> ⚠ {u.warnings}</small>}{u.status === 'SUSPENDED' && <small className="muted"><br />{u.suspendedUntil ? 'back in ' + Math.max(0, Math.ceil((new Date(u.suspendedUntil).getTime() - Date.now()) / 60000)) + ' min' : 'until activated'}</small>}</td>
                   <td>{u.loginCount}</td>
                   <td className={u.failedLogins > 0 ? 'err' : ''}>{u.failedLogins}</td>
                   <td>{u._count.enrollments}</td>
@@ -137,7 +139,7 @@ export function MessagesPanel() {
 /* ---------------- Enrollments with expiry ---------------- */
 export function EnrollmentsPanel() {
   const [courses, setCourses] = useState<any[]>([]);
-  const [sel, setSel] = useState('');
+  const [sel, setSel] = useStored('sel_enr', '');
   const [list, setList] = useState<any[]>([]);
   const [email, setEmail] = useState('');
   const [days, setDays] = useState('0');
@@ -152,6 +154,12 @@ export function EnrollmentsPanel() {
     const d = prompt('Access days from today (0 = lifetime):', '30'); if (d === null) return;
     await api(`/admin/enrollments/${e.id}`, { method: 'PATCH', body: { days: d } }); load();
   };
+  const revoke = async (e: any) => {
+    const reason = prompt('Reason (user will see this). The user must pay again to re-enroll:', ''); if (reason === null) return;
+    const sender = askSender(); if (sender === null) return;
+    await api(`/admin/enrollments/${e.id}/revoke`, { method: 'POST', body: { reason, sender } }); load();
+  };
+  const restore = async (e: any) => { await api(`/admin/enrollments/${e.id}/restore`, { method: 'POST' }); load(); };
   const remove = async (id: string) => { if (confirm('Remove this student from the course?')) { await api(`/admin/enrollments/${id}`, { method: 'DELETE' }); load(); } };
   return (
     <div className="card">
@@ -167,8 +175,8 @@ export function EnrollmentsPanel() {
           const exp = e.expiresAt ? new Date(e.expiresAt) : null; const expired = exp && exp < new Date();
           return (
             <div className="line" key={e.id}>
-              <span>{e.user.name} <small className="muted">{e.user.email}</small> · <small className={expired ? 'err' : 'ok'}>{exp ? (expired ? 'Expired ' : 'Expires ') + exp.toLocaleDateString() : 'No expiry'}</small></span>
-              <span className="row"><button className="btn sm ghost" onClick={() => setExp(e)}>Set expiry</button><button className="btn sm danger" onClick={() => remove(e.id)}>Remove</button></span>
+              <span>{e.user.name} <small className="muted">{e.user.email}</small> · {e.revokedAt ? <small className="err">Terminated {new Date(e.revokedAt).toLocaleDateString()} (must pay again)</small> : <small className={expired ? 'err' : 'ok'}>{exp ? (expired ? 'Expired ' : 'Expires ') + exp.toLocaleDateString() : 'No expiry'}</small>}</span>
+              <span className="row">{e.revokedAt ? <button className="btn sm" onClick={() => restore(e)}>Restore access</button> : <button className="btn sm danger" onClick={() => revoke(e)}>Terminate access</button>}<button className="btn sm ghost" onClick={() => setExp(e)}>Set expiry</button><button className="btn sm ghost" onClick={() => remove(e.id)}>Delete record</button></span>
             </div>
           );
         })}

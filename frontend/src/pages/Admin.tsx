@@ -1,41 +1,108 @@
 import { useEffect, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { api, media, upload } from '../api';
+import { useStored } from '../useStored';
 import Progress from '../components/Progress';
 import HomepageBuilder from './HomepageBuilder';
+import LabsPanel from './AdminLabs';
 import { UsersPanel, MessagesPanel, EnrollmentsPanel, PaymentsPanel, CheckoutPanel } from './AdminExtra';
 import { parseMenu, useSettings } from '../settings';
 
 const TABS = ['Overview', 'Homepage', 'Courses', 'Videos', 'Slides', 'Categories', 'Header', 'Course categories', 'Reviews', 'Users', 'Payments', 'Checkout', 'Enrollments', 'Messages', 'Settings'];
 
+const GROUPS = [
+  { name: 'Overview', items: [{ id: 'Overview', label: 'Dashboard', icon: '📊' }] },
+  { name: 'Website', items: [
+    { id: 'Homepage', label: 'Homepage builder', icon: '🏠' }, { id: 'Header', label: 'Header and menu', icon: '🧭' },
+    { id: 'Slides', label: 'Image slides', icon: '🖼️' }, { id: 'Settings', label: 'Settings', icon: '⚙️' }] },
+  { name: 'Courses', items: [
+    { id: 'Courses', label: 'Courses and plans', icon: '📚' }, { id: 'Videos', label: 'Lectures (videos)', icon: '🎬' },
+    { id: 'Labs', label: 'Labs and quizzes', icon: '🧪' }, { id: 'Categories', label: 'Categories', icon: '🏷️' }, { id: 'Course categories', label: 'Category display', icon: '🗂️' }] },
+  { name: 'Students', items: [
+    { id: 'Users', label: 'Users and activity', icon: '👥' }, { id: 'Enrollments', label: 'Enrollments', icon: '🎓' },
+    { id: 'Payments', label: 'Payment requests', icon: '💳' }, { id: 'Checkout', label: 'Checkout page', icon: '🔒' },
+    { id: 'Messages', label: 'Messages', icon: '✉️' }, { id: 'Reviews', label: 'Reviews', icon: '⭐' }] },
+];
+
 export default function Admin() {
-  const [tab, setTab] = useState('Overview');
+  const [sp, setSp] = useSearchParams();   // tab URL mein: refresh par wahi page
+  const tab = sp.get('tab') || 'Overview';
+  const setTab = (t: string) => setSp({ tab: t });
+  const [pending, setPending] = useState(0);
+  useEffect(() => {
+    const f = () => api('/admin/stats').then((s) => setPending(s['pending payments'] || 0)).catch(() => {});
+    f(); const i = setInterval(f, 30000); return () => clearInterval(i);
+  }, [tab]);
+  const label = GROUPS.flatMap((g) => g.items).find((i) => i.id === tab)?.label || tab;
   return (
-    <div className="page">
-      <h1>Admin panel</h1>
-      <div className="filters">{TABS.map((t) => <button key={t} className={'chip' + (tab === t ? ' on' : '')} onClick={() => setTab(t)}>{t}</button>)}</div>
-      {tab === 'Overview' && <Overview />}
-      {tab === 'Homepage' && <HomepageBuilder />}
-      {tab === 'Courses' && <CoursesTab />}
-      {tab === 'Videos' && <VideosTab />}
-      {tab === 'Slides' && <SlidesTab />}
-      {tab === 'Categories' && <CategoriesTab />}
-      {tab === 'Header' && <HeaderTab />}
-      {tab === 'Course categories' && <CourseCategoriesTab />}
-      {tab === 'Reviews' && <ReviewsTab />}
-      {tab === 'Users' && <UsersPanel />}
-      {tab === 'Payments' && <PaymentsPanel />}
-      {tab === 'Checkout' && <CheckoutPanel />}
-      {tab === 'Messages' && <MessagesPanel />}
-      {tab === 'Enrollments' && <EnrollmentsPanel />}
-      {tab === 'Settings' && <SettingsTab />}
+    <div className="adminwrap">
+      <aside className="adminnav">
+        {GROUPS.map((g) => (
+          <div key={g.name}>
+            <div className="angroup">{g.name}</div>
+            {g.items.map((it) => (
+              <button key={it.id} className={'anitem' + (tab === it.id ? ' on' : '')} onClick={() => setTab(it.id)}>
+                <span className="anicon">{it.icon}</span><span>{it.label}</span>
+                {it.id === 'Payments' && pending > 0 && <b className="badge2">{pending}</b>}
+              </button>
+            ))}
+          </div>
+        ))}
+      </aside>
+      <section className="admincontent">
+        <h1>{label}</h1>
+        {tab === 'Overview' && <Overview go={setTab} />}
+        {tab === 'Homepage' && <HomepageBuilder />}
+        {tab === 'Courses' && <CoursesTab />}
+        {tab === 'Videos' && <VideosTab />}
+        {tab === 'Labs' && <LabsPanel />}
+        {tab === 'Slides' && <SlidesTab />}
+        {tab === 'Categories' && <CategoriesTab />}
+        {tab === 'Header' && <HeaderTab />}
+        {tab === 'Course categories' && <CourseCategoriesTab />}
+        {tab === 'Reviews' && <ReviewsTab />}
+        {tab === 'Users' && <UsersPanel />}
+        {tab === 'Payments' && <PaymentsPanel />}
+        {tab === 'Checkout' && <CheckoutPanel />}
+        {tab === 'Enrollments' && <EnrollmentsPanel />}
+        {tab === 'Messages' && <MessagesPanel />}
+        {tab === 'Settings' && <SettingsTab />}
+      </section>
     </div>
   );
 }
 
-function Overview() {
+function Overview({ go }: { go: (t: string) => void }) {
   const [s, setS] = useState<any>({});
-  useEffect(() => { api('/admin/stats').then(setS); }, []);
-  return <div className="stats">{Object.entries(s).map(([k, v]: any) => <div className="card stat" key={k}><b>{v}</b><span>{k}</span></div>)}</div>;
+  const [pay, setPay] = useState<any[]>([]);
+  const [act, setAct] = useState<any[]>([]);
+  useEffect(() => {
+    api('/admin/stats').then(setS);
+    api('/admin/payments?status=PENDING').then((r) => setPay(r.slice(0, 5)));
+    api('/admin/activity').then((r) => setAct(r.slice(0, 8)));
+  }, []);
+  const cards = [['👥', 'users', 'Students'], ['🟢', 'online now', 'Online now'], ['📚', 'courses', 'Courses'], ['🎓', 'enrollments', 'Enrollments'], ['💳', 'pending payments', 'Pending payments'], ['⭐', 'reviews', 'Reviews']];
+  return (
+    <>
+      <div className="statcards">
+        {cards.map(([icon, k, label]) => (
+          <div className="statcard" key={k}><span className="sicon">{icon}</span><div><b>{s[k] ?? '–'}</b><small>{label}</small></div></div>
+        ))}
+      </div>
+      <div className="twocol">
+        <div className="card">
+          <div className="line"><h3 style={{ margin: 0 }}>Pending payments</h3><button className="btn sm ghost" onClick={() => go('Payments')}>Open</button></div>
+          {pay.length === 0 && <p className="muted">Nothing waiting for review.</p>}
+          {pay.map((p) => <div className="line" key={p.id}><span>{p.user.name} <small className="muted">→ {p.course.title}</small></span><small className="muted">{new Date(p.createdAt).toLocaleString()}</small></div>)}
+        </div>
+        <div className="card">
+          <div className="line"><h3 style={{ margin: 0 }}>Recent login activity</h3><button className="btn sm ghost" onClick={() => go('Users')}>Open</button></div>
+          {act.length === 0 && <p className="muted">No activity yet.</p>}
+          {act.map((a) => <div className="line" key={a.id}><span className={a.type.includes('FAILED') || a.type.includes('BLOCKED') ? 'err' : 'ok'}>{a.type.replace('_', ' ')}</span><small className="muted">{a.email}</small><small className="muted">{new Date(a.createdAt).toLocaleString()}</small></div>)}
+        </div>
+      </div>
+    </>
+  );
 }
 
 function CategoriesTab() {
@@ -140,6 +207,7 @@ function CoursesTab() {
 function Lessons({ course, onClose }: { course: any; onClose?: () => void }) {
   const [list, setList] = useState<any[]>([]);
   const [title, setTitle] = useState('');
+  const [section, setSection] = useState('');
   const [video, setVideo] = useState<File | null>(null);
   const [pct, setPct] = useState<number | null>(null);
   const [fpct, setFpct] = useState<{ id: string; n: number } | null>(null);
@@ -148,7 +216,7 @@ function Lessons({ course, onClose }: { course: any; onClose?: () => void }) {
 
   const add = async () => {
     if (!video) return alert('Choose a video');
-    const f = new FormData(); f.append('title', title); f.append('video', video);
+    const f = new FormData(); f.append('title', title); f.append('section', section); f.append('video', video);
     setPct(0);
     try { await upload(`/admin/courses/${course.id}/lessons`, f, 'POST', setPct); setTitle(''); setVideo(null); load(); } catch (e: any) { alert(e.message); }
     setPct(null);
@@ -159,18 +227,18 @@ function Lessons({ course, onClose }: { course: any; onClose?: () => void }) {
     try { await upload(`/admin/lessons/${lid}/files`, f, 'POST', (n) => setFpct({ id: lid, n })); load(); } catch (e: any) { alert(e.message); }
     setFpct(null);
   };
-  const editL = async (l: any) => { const t = prompt('Video title', l.title); if (t === null) return; const o = prompt('Order number', String(l.order)); await api(`/admin/lessons/${l.id}`, { method: 'PATCH', body: { title: t, order: o } }); load(); };
+  const editL = async (l: any) => { const t = prompt('Video title', l.title); if (t === null) return; const o = prompt('Order number', String(l.order)); if (o === null) return; const sec = prompt('Section / module', l.section || ''); if (sec === null) return; const desc = prompt('Lecture description (optional)', l.description || ''); if (desc === null) return; await api(`/admin/lessons/${l.id}`, { method: 'PATCH', body: { title: t, order: o, section: sec, description: desc } }); load(); };
   const delL = async (id: string) => { if (confirm('Delete video?')) { await api(`/admin/lessons/${id}`, { method: 'DELETE' }); load(); } };
   const delF = async (id: string) => { await api(`/admin/files/${id}`, { method: 'DELETE' }); load(); };
 
   return (
     <div className="card manage">
       <div className="line"><h3>Videos: {course.title}</h3>{onClose && <button className="btn ghost" onClick={onClose}>Close</button>}</div>
-      <div className="row"><input placeholder="Video title" value={title} onChange={(e) => setTitle(e.target.value)} /><input type="file" accept="video/*" onChange={(e) => setVideo(e.target.files?.[0] || null)} /><button className="btn" onClick={add}>Upload video</button></div>
+      <div className="row"><input placeholder="Lecture title" value={title} onChange={(e) => setTitle(e.target.value)} /><input placeholder="Section / module (optional)" value={section} onChange={(e) => setSection(e.target.value)} /><input type="file" accept="video/*" onChange={(e) => setVideo(e.target.files?.[0] || null)} /><button className="btn" onClick={add}>Upload video</button></div>
       <Progress pct={pct} label="Uploading video" />
       {list.map((l) => (
         <div className="lesson" key={l.id}>
-          <div className="line"><b>{l.order}. {l.title}</b><span className="row"><button className="btn sm ghost" onClick={() => editL(l)}>Edit</button><button className="btn sm danger" onClick={() => delL(l.id)}>Delete</button></span></div>
+          <div className="line"><b>{l.order}. {l.title}</b> {l.section && <small className="tag">{l.section}</small>}<span className="row"><button className="btn sm ghost" onClick={() => editL(l)}>Edit</button><button className="btn sm danger" onClick={() => delL(l.id)}>Delete</button></span></div>
           {l.files.map((f: any) => <div className="line sub" key={f.id}><span>📎 {f.name}</span><button className="btn danger" onClick={() => delF(f.id)}>Remove</button></div>)}
           <label className="muted">Add notes/file (optional): <input type="file" onChange={(e) => e.target.files?.[0] && addFile(l.id, e.target.files[0])} /></label>
           {fpct?.id === l.id && <Progress pct={fpct.n} label="Uploading file" />}
@@ -293,7 +361,7 @@ function MessagesTab() {
 // Videos tab: course select karo, video + notes upload karo -> enrolled users ke dashboard mein show hoga
 function VideosTab() {
   const [courses, setCourses] = useState<any[]>([]);
-  const [sel, setSel] = useState('');
+  const [sel, setSel] = useStored('sel_videos', '');
   useEffect(() => { api('/admin/courses').then(setCourses); }, []);
   const course = courses.find((c) => c.id === sel);
   return (

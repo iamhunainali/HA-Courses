@@ -10,7 +10,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (!token()) { setReady(true); return; }
-    api('/auth/me').then(setUser).catch(() => localStorage.removeItem('token')).finally(() => setReady(true));
+    // Refresh par logout nahi: server restart / network error par dobara try karta hai
+    let tries = 0, stop = false;
+    const run = () => api('/auth/me').then((u) => { if (!stop) { setUser(u); setReady(true); } }).catch((e: any) => {
+      if (e.status === 401 || e.status === 403) { localStorage.removeItem('token'); if (!stop) setReady(true); }
+      else if (++tries < 6) setTimeout(run, 1500);
+      else if (!stop) setReady(true);
+    });
+    run();
+    return () => { stop = true; };
+  }, []);
+
+  useEffect(() => {
+    const h = () => { localStorage.removeItem('token'); setUser(null); };
+    window.addEventListener('suspended', h);
+    return () => window.removeEventListener('suspended', h);
   }, []);
 
   useEffect(() => {

@@ -21,6 +21,11 @@ const store = (sub: string) => ({
   limits: { fileSize: 5 * 1024 * 1024 * 1024 },
 });
 const rm = (sub: string, name?: string | null) => (name ? unlink(join(UP, sub, name)).catch(() => {}) : Promise.resolve());
+const labData = (b: any) => ({
+  title: String(b.title || '').trim() || 'Untitled lab', description: b.description || '', kind: b.kind || 'Quiz',
+  timeLimitMin: parseInt(b.timeLimitMin) || 0, passPercent: Math.min(100, Math.max(0, parseInt(b.passPercent) || 60)),
+  published: b.published !== false, items: Array.isArray(b.items) ? b.items : [],
+});
 
 @Controller('admin')
 @UseGuards(AuthGuard, AdminGuard)
@@ -93,7 +98,7 @@ export class AdminController {
   async addLesson(@Param('id') id: string, @Body() b: any, @UploadedFile() f: any) {
     if (!f) throw new BadRequestException('Video file required');
     const count = await this.db.lesson.count({ where: { courseId: id } });
-    return this.db.lesson.create({ data: { courseId: id, title: b.title || f.originalname, video: f.filename, order: parseInt(b.order) || count + 1 } });
+    return this.db.lesson.create({ data: { courseId: id, title: b.title || f.originalname, video: f.filename, order: parseInt(b.order) || count + 1, section: b.section || null, description: b.description || null } });
   }
 
   @Delete('lessons/:id')
@@ -154,7 +159,7 @@ export class AdminController {
     const rows = await this.db.user.findMany({
       where: q ? { OR: [{ email: { contains: q, mode: 'insensitive' } }, { name: { contains: q, mode: 'insensitive' } }] } : {},
       orderBy: { createdAt: 'desc' },
-      select: { id: true, name: true, email: true, role: true, status: true, warnings: true, createdAt: true, lastLogin: true, lastSeen: true, loginCount: true, failedLogins: true, _count: { select: { enrollments: true } } },
+      select: { id: true, name: true, email: true, role: true, status: true, warnings: true, createdAt: true, lastLogin: true, suspendedUntil: true, lastSeen: true, loginCount: true, failedLogins: true, _count: { select: { enrollments: true } } },
     });
     return rows.map((u) => ({ ...u, online: !!u.lastSeen && Date.now() - u.lastSeen.getTime() < 120000 }));
   }
@@ -170,6 +175,7 @@ export class AdminController {
     const u = await this.db.user.findUnique({ where: { id } });
     if (!u) throw new NotFoundException();
     if (u.role === 'SUPER_ADMIN') throw new ForbiddenException('Cannot act on super admin');
+    const mins = b.minutes === undefined || b.minutes === '' ? 60 : parseInt(b.minutes) || 0;
     const note = (title: string, message: string) => this.db.notification.create({ data: { userId: id, title, message, sender: b.sender || null } });
     switch (b.action) {
       case 'warn':
@@ -177,11 +183,11 @@ export class AdminController {
         await note('Warning from admin', b.reason || 'Please follow the portal rules.');
         break;
       case 'suspend':
-        await this.db.user.update({ where: { id }, data: { status: 'SUSPENDED' } });
-        await note('Account suspended', b.reason || 'Your account has been suspended.');
+        await this.db.user.update({ where: { id }, data: { status: 'SUSPENDED', suspendedUntil: mins > 0 ? new Date(Date.now() + mins * 60000) : null, suspendReason: b.reason || null } });
+        await note('Account suspended', (b.reason || 'Your account has been suspended.') + (mins > 0 ? ` You can log in again after ${mins} minute(s).` : ''));
         break;
       case 'activate':
-        await this.db.user.update({ where: { id }, data: { status: 'ACTIVE' } });
+        await this.db.user.update({ where: { id }, data: { status: 'ACTIVE', suspendedUntil: null, suspendReason: null, failedStreak: 0 } });
         await note('Account activated', 'Your account is active.');
         break;
       case 'clear_warnings':
@@ -229,7 +235,7 @@ export class AdminController {
 
   @Patch('lessons/:id')
   editLesson(@Param('id') id: string, @Body() b: any) {
-    return this.db.lesson.update({ where: { id }, data: { ...(b.title ? { title: b.title } : {}), ...(b.order !== undefined && b.order !== '' ? { order: parseInt(b.order) || 0 } : {}) } });
+    return this.db.lesson.update({ where: { id }, data: { ...(b.title ? { title: b.title } : {}), ...(b.order !== undefined && b.order !== '' ? { order: parseInt(b.order) || 0 } : {}), ...(b.section !== undefined ? { section: b.section || null } : {}), ...(b.description !== undefined ? { description: b.description || null } : {}) } });
   }
 
   @Patch('slides/:id')
@@ -310,6 +316,37 @@ export class AdminController {
     return { file: f.filename };
   }
 
+  // ----- Terminate / restore access (user ko dobara payment karni hogi) -----
+  @Post('enrollments/:id/revoke')
+  async revokeEnrollment(@Param('id') id: string, @Body() b: any) {
+    const e = await this.db.enrollment.findUnique({ where: { id }, include: { course: true } });
+    if (!e) throw new NotFoundException();
+    await this.db.enrollment.update({ where: { id }, data: { revokedAt: new Date() } });
+    await this.db.notification.create({ data: { userId: e.userId, sender: b.sender || 'Admin', title: 'Course access ended', message: `Your access to "${e.course.title}" was ended by admin.${b.reason ? ' Reason: ' + b.reason : ''} To enroll again, please complete the payment again.` } });
+    return { ok: true };
+  }
+
+  @Post('enrollments/:id/restore')
+  async restoreEnrollment(@Param('id') id: string) { await this.db.enrollment.update({ where: { id }, data: { revokedAt: null } }); return { ok: true }; }
+
+  // ----- Labs -----
+  @Get('courses/:id/labs')
+  adminLabs(@Param('id') id: string) { return this.db.lab.findMany({ where: { courseId: id }, orderBy: [{ order: 'asc' }, { createdAt: 'asc' }], include: { _count: { select: { attempts: true } } } }); }
+
+  @Post('courses/:id/labs')
+  async addLab(@Param('id') id: string, @Body() b: any) {
+    const count = await this.db.lab.count({ where: { courseId: id } });
+    return this.db.lab.create({ data: { courseId: id, ...labData(b), order: count + 1 } });
+  }
+
+  @Patch('labs/:id') editLab(@Param('id') id: string, @Body() b: any) { return this.db.lab.update({ where: { id }, data: labData(b) }); }
+  @Delete('labs/:id') async delLab(@Param('id') id: string) { await this.db.lab.delete({ where: { id } }).catch(() => {}); return { ok: true }; }
+
+  @Get('labs/:id/attempts')
+  labAttempts(@Param('id') id: string) {
+    return this.db.labAttempt.findMany({ where: { labId: id }, orderBy: { createdAt: 'desc' }, take: 200, include: { user: { select: { name: true, email: true } } } });
+  }
+
   // ----- Enrollment expiry -----
   @Patch('enrollments/:id')
   editEnrollment(@Param('id') id: string, @Body() b: any) {
@@ -335,7 +372,7 @@ export class AdminController {
     const existing = await this.db.enrollment.findUnique({ where: { userId_courseId: { userId: p.userId, courseId: p.courseId } } });
     const base = existing?.expiresAt && existing.expiresAt > new Date() ? existing.expiresAt : new Date();
     const expiresAt = days > 0 ? new Date(base.getTime() + days * 86400000) : null;
-    if (existing) await this.db.enrollment.update({ where: { id: existing.id }, data: { expiresAt, celebrated: false } });
+    if (existing) await this.db.enrollment.update({ where: { id: existing.id }, data: { expiresAt, celebrated: false, revokedAt: null } });
     else await this.db.enrollment.create({ data: { userId: p.userId, courseId: p.courseId, expiresAt, celebrated: false } });
     await this.db.paymentRequest.update({ where: { id }, data: { status: 'APPROVED', reviewedAt: new Date(), note: b.note || null } });
     await this.db.notification.create({ data: { userId: p.userId, sender: 'Payments', title: 'Access granted', message: `Your payment was approved. You now have access to "${p.course.title}"${expiresAt ? ` until ${expiresAt.toDateString()}` : ''}.` } });

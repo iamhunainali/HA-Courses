@@ -36,6 +36,11 @@ model User {
   failedLogins  Int            @default(0)
   activities    Activity[]
   payments      PaymentRequest[]
+  labAttempts   LabAttempt[]
+  suspendedUntil DateTime?
+  suspendReason  String?
+  failedStreak   Int           @default(0)
+  progress      LessonProgress[]
 }
 
 model Category {
@@ -62,6 +67,7 @@ model Course {
   lessons     Lesson[]
   enrollments Enrollment[]
   payments    PaymentRequest[]
+  labs        Lab[]
 }
 
 model Lesson {
@@ -72,7 +78,10 @@ model Lesson {
   video     String
   order     Int          @default(0)
   createdAt DateTime     @default(now())
+  section     String?
+  description String?
   files     LessonFile[]
+  progress  LessonProgress[]
 }
 
 model LessonFile {
@@ -91,6 +100,7 @@ model Enrollment {
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   course    Course   @relation(fields: [courseId], references: [id], onDelete: Cascade)
   expiresAt  DateTime?
+  revokedAt  DateTime?
   celebrated Boolean  @default(true)
 
   @@unique([userId, courseId])
@@ -162,4 +172,44 @@ model PaymentRequest {
   createdAt  DateTime  @default(now())
   dueAt      DateTime
   reviewedAt DateTime?
+}
+
+model Lab {
+  id            String       @id @default(uuid())
+  courseId      String
+  course        Course       @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  title         String
+  description   String       @default("")
+  kind          String       @default("Quiz")
+  timeLimitMin  Int          @default(0)
+  passPercent   Int          @default(60)
+  published     Boolean      @default(true)
+  order         Int          @default(0)
+  items         Json
+  createdAt     DateTime     @default(now())
+  attempts      LabAttempt[]
+}
+
+model LabAttempt {
+  id        String   @id @default(uuid())
+  labId     String
+  lab       Lab      @relation(fields: [labId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  score     Int
+  total     Int
+  percent   Int
+  passed    Boolean
+  createdAt DateTime @default(now())
+}
+
+model LessonProgress {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  lessonId  String
+  lesson    Lesson   @relation(fields: [lessonId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@unique([userId, lessonId])
 }

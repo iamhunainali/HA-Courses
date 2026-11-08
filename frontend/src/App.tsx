@@ -12,6 +12,7 @@ import ReviewsPage from './pages/ReviewsPage';
 import Admin from './pages/Admin';
 import Checkout from './pages/Checkout';
 import Celebrate from './components/Celebrate';
+import SuspendedModal from './components/SuspendedModal';
 
 function Protected({ children, admin }: { children: any; admin?: boolean }) {
   const { user, ready } = useAuth();
@@ -27,6 +28,7 @@ export default function App() {
     <div className="app">
       <Header />
       <Celebrate />
+      <SuspendedModal />
       <main>
         <Routes>
           <Route path="/" element={<Home />} />

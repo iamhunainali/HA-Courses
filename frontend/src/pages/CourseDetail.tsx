@@ -23,8 +23,8 @@ export default function CourseDetail() {
     if (!ready || !user) { setEnrolled(false); return; }
     api('/my/enrollments').then(async (r) => {
       const mine = r.find((x: any) => x.id === id);
-      setEnrolled(!!mine && !mine.enrollment.expired);
-      setExpired(!!mine && mine.enrollment.expired);
+      setEnrolled(!!mine && !mine.enrollment.expired && !mine.enrollment.revoked);
+      setExpired(!!mine && (mine.enrollment.expired || mine.enrollment.revoked));
       if (!mine && sp.get('enroll') === '1' && c && c.plan !== 'PREMIUM') { await doEnroll(); nav(`/course/${id}`, { replace: true }); }
     });
   }, [user, ready, id, c]);
@@ -43,19 +43,19 @@ export default function CourseDetail() {
       <div>
         <div className="row">
           {c.category && <small className="tag">{c.category.name}</small>}
-          <small className={'tag ' + (premium ? 'warn' : '')}>{premium ? 'Premium plan' : 'Free plan'}</small>
+          {expired ? <small className="tag exp">Expired</small> : enrolled && premium ? <small className="tag buy">Purchased</small> : <small className={'tag ' + (premium ? 'warn' : '')}>{premium ? 'Premium plan' : 'Free plan'}</small>}
         </div>
         <h1>{c.title}</h1>
         <p className="desc">{c.description}</p>
         <p className="muted">
           {c._count.lessons} videos · {c._count.enrollments} students enrolled
-          {premium && ` · ${settings.currency} ${c.price} · ${c.durationDays ? c.durationDays + ' days access' : 'lifetime access'}`}
+          {premium && !enrolled && !expired && ` · ${settings.currency} ${c.price} · ${c.durationDays ? c.durationDays + ' days access' : 'lifetime access'}`}
         </p>
         {err && <p className="err">{err}</p>}
         {enrolled ? (
-          <div className="row"><span className="ok">You have access</span><Link className="btn" to={`/dashboard?course=${id}`}>Open in dashboard</Link></div>
-        ) : premium ? (
-          <Link className="btn big" to={`/checkout/${id}`}>{expired ? 'Renew access' : 'Buy now'} · {settings.currency} {c.price}</Link>
+          <div className="row"><span className="ok">You have access</span><Link className="btn" to={`/learn/${id}`}>Open course</Link></div>
+        ) : premium || expired ? (
+          <Link className="btn big" to={`/checkout/${id}`}>{expired ? 'Pay again to re-enroll' : 'Buy now'} · {settings.currency} {c.price}</Link>
         ) : (
           <button className="btn big" onClick={click}>Enroll Now</button>
         )}

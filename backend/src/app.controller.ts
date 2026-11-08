@@ -29,6 +29,30 @@ export class AppController implements OnModuleInit {
         data: { name: 'Super Admin', email, role: 'SUPER_ADMIN', password: await bcrypt.hash(process.env.ADMIN_PASSWORD || 'Admin@12345', 10) },
       });
     }
+    this.startSuspensionJob();
+  }
+
+  // Har minute: jin users ki suspension ka time poora ho gaya unko ACTIVE karo + notification
+  private startSuspensionJob() {
+    const run = async () => {
+      try {
+        const due = await this.db.user.findMany({ where: { status: 'SUSPENDED', suspendedUntil: { lte: new Date() } }, select: { id: true } });
+        for (const x of due) {
+          await this.db.user.update({ where: { id: x.id }, data: { status: 'ACTIVE', suspendedUntil: null, suspendReason: null, failedStreak: 0 } });
+          await this.db.notification.create({ data: { userId: x.id, sender: 'System', title: 'Account active again', message: 'Your suspension has ended. Your account is active again.' } });
+        }
+      } catch {}
+    };
+    setInterval(run, 60000).unref();
+  }
+
+  private suspendedBody(u: any) {
+    return { statusCode: 403, message: 'Your account is suspended.', code: 'SUSPENDED', until: u.suspendedUntil, reason: u.suspendReason };
+  }
+  private async liftIfExpired(u: any) {
+    if (u.status === 'SUSPENDED' && u.suspendedUntil && u.suspendedUntil <= new Date())
+      return this.db.user.update({ where: { id: u.id }, data: { status: 'ACTIVE', suspendedUntil: null, suspendReason: null, failedStreak: 0 } });
+    return u;
   }
 
   private ip(req: any) { return String(req.headers['x-real-ip'] || req.ip || ''); }
@@ -45,6 +69,7 @@ export class AppController implements OnModuleInit {
     if (user.role === 'SUPER_ADMIN') return;
     const e = await this.db.enrollment.findUnique({ where: { userId_courseId: { userId: user.id, courseId } } });
     if (!e) throw new ForbiddenException('Enroll in this course first');
+    if (e.revokedAt) throw new ForbiddenException('Your access was ended by admin. Please pay again to re-enroll.');
     if (e.expiresAt && e.expiresAt < new Date()) throw new ForbiddenException('Your access has expired. Please renew.');
   }
 
@@ -61,18 +86,35 @@ export class AppController implements OnModuleInit {
 
   @Post('auth/login')
   async login(@Body() b: any, @Req() req: any) {
+    const MAX_FAILED = 4;
     const email = String(b.email || '').trim().toLowerCase();
-    const u = await this.db.user.findUnique({ where: { email } });
+    let u: any = await this.db.user.findUnique({ where: { email } });
+    if (u) u = await this.liftIfExpired(u);
+
+    // Email detect: suspended account ki har login attempt par warning popup ka data
+    if (u && u.status === 'SUSPENDED') {
+      await this.log('BLOCKED_LOGIN', email, u.id, req);
+      throw new ForbiddenException(this.suspendedBody(u));
+    }
+
     if (!u || !(await bcrypt.compare(String(b.password || ''), u.password))) {
-      if (u) await this.db.user.update({ where: { id: u.id }, data: { failedLogins: { increment: 1 } } });
       await this.log('FAILED_LOGIN', email, u ? u.id : null, req);
+      if (!u) throw new UnauthorizedException('Wrong email or password');
+      const streak = u.failedStreak + 1;
+      await this.db.user.update({ where: { id: u.id }, data: { failedLogins: { increment: 1 }, failedStreak: streak } });
+      if (u.role !== 'SUPER_ADMIN') {
+        if (streak >= MAX_FAILED) {
+          const s = await this.db.user.update({ where: { id: u.id }, data: { status: 'SUSPENDED', suspendedUntil: new Date(Date.now() + 3600 * 1000), suspendReason: 'Too many failed login attempts', failedStreak: 0 } });
+          await this.log('AUTO_SUSPEND', email, u.id, req);
+          await this.db.notification.create({ data: { userId: u.id, sender: 'Security', title: 'Account suspended', message: 'Your account was suspended for 1 hour after 4 failed login attempts.' } });
+          throw new ForbiddenException(this.suspendedBody(s));
+        }
+        throw new UnauthorizedException(`Wrong email or password. ${MAX_FAILED - streak} attempt(s) left before your account is suspended for 1 hour.`);
+      }
       throw new UnauthorizedException('Wrong email or password');
     }
-    if (u.status === 'SUSPENDED') {
-      await this.log('BLOCKED_LOGIN', email, u.id, req);
-      throw new ForbiddenException('Your account is suspended. Contact admin.');
-    }
-    await this.db.user.update({ where: { id: u.id }, data: { lastLogin: new Date(), lastSeen: new Date(), loginCount: { increment: 1 } } });
+
+    await this.db.user.update({ where: { id: u.id }, data: { lastLogin: new Date(), lastSeen: new Date(), loginCount: { increment: 1 }, failedStreak: 0 } });
     await this.log('LOGIN', email, u.id, req);
     return { token: this.jwt.sign({ sub: u.id }), user: safe(u) };
   }
@@ -138,7 +180,9 @@ export class AppController implements OnModuleInit {
     if (!c) throw new NotFoundException('Course not found');
     if (c.plan === 'PREMIUM' && req.user.role !== 'SUPER_ADMIN') throw new BadRequestException('This is a premium course. Please complete checkout.');
     const where = { userId_courseId: { userId: req.user.id, courseId: id } };
-    if (!(await this.db.enrollment.findUnique({ where }))) {
+    const prev = await this.db.enrollment.findUnique({ where });
+    if (prev?.revokedAt) throw new BadRequestException('Your access was ended by admin. Please complete the payment again to re-enroll.');
+    if (!prev) {
       await this.db.enrollment.create({ data: { userId: req.user.id, courseId: id, celebrated: false } });
       await this.db.notification.create({ data: { userId: req.user.id, title: 'Enrolled', message: `You are enrolled in "${c.title}". Open your dashboard to start.` } });
     }
@@ -151,17 +195,38 @@ export class AppController implements OnModuleInit {
       where: { userId: req.user.id }, orderBy: { createdAt: 'desc' },
       include: { course: { include: { category: true, _count: { select: { lessons: true } } } } },
     });
+    const prog = await this.db.lessonProgress.findMany({ where: { userId: req.user.id }, select: { lesson: { select: { courseId: true } } } });
+    const done: Record<string, number> = {};
+    prog.forEach((p) => { done[p.lesson.courseId] = (done[p.lesson.courseId] || 0) + 1; });
     const now = new Date();
-    return e.map((x) => ({ ...x.course, enrollment: { id: x.id, createdAt: x.createdAt, expiresAt: x.expiresAt, expired: !!x.expiresAt && x.expiresAt < now } }));
+    return e.map((x) => ({
+      ...x.course,
+      enrollment: { id: x.id, createdAt: x.createdAt, expiresAt: x.expiresAt, expired: !!x.expiresAt && x.expiresAt < now, revoked: !!x.revokedAt, completed: done[x.courseId] || 0 },
+    }));
   }
 
   @UseGuards(AuthGuard) @Get('my/courses/:id/lessons')
   async myLessons(@Param('id') id: string, @Req() req: any) {
     await this.access(req.user, id);
-    return this.db.lesson.findMany({
-      where: { courseId: id }, orderBy: [{ order: 'asc' }, { createdAt: 'asc' }],
-      select: { id: true, title: true, order: true, files: { select: { id: true, name: true } } },
-    });
+    const [lessons, done] = await Promise.all([
+      this.db.lesson.findMany({
+        where: { courseId: id }, orderBy: [{ order: 'asc' }, { createdAt: 'asc' }],
+        select: { id: true, title: true, order: true, section: true, description: true, files: { select: { id: true, name: true } } },
+      }),
+      this.db.lessonProgress.findMany({ where: { userId: req.user.id, lesson: { courseId: id } }, select: { lessonId: true } }),
+    ]);
+    const set = new Set(done.map((d) => d.lessonId));
+    return lessons.map((l) => ({ ...l, completed: set.has(l.id) }));
+  }
+
+  @UseGuards(AuthGuard) @Post('lessons/:id/complete')
+  async complete(@Param('id') id: string, @Body() b: any, @Req() req: any) {
+    const l = await this.db.lesson.findUnique({ where: { id } });
+    if (!l) throw new NotFoundException();
+    await this.access(req.user, l.courseId);
+    if (b.done === false) await this.db.lessonProgress.deleteMany({ where: { userId: req.user.id, lessonId: id } });
+    else await this.db.lessonProgress.upsert({ where: { userId_lessonId: { userId: req.user.id, lessonId: id } }, update: {}, create: { userId: req.user.id, lessonId: id } });
+    return { ok: true };
   }
 
   // Protected video streaming (Range support sendFile se). Token query se bhi chalta hai.
@@ -199,9 +264,9 @@ export class AppController implements OnModuleInit {
   }))
   async checkout(@Param('id') id: string, @Body() b: any, @UploadedFiles() files: any[], @Req() req: any) {
     const c = await this.db.course.findFirst({ where: { id, published: true } });
-    if (!c || c.plan !== 'PREMIUM') throw new BadRequestException('This course does not need payment');
     const enr = await this.db.enrollment.findUnique({ where: { userId_courseId: { userId: req.user.id, courseId: id } } });
-    if (enr && (!enr.expiresAt || enr.expiresAt > new Date())) throw new ConflictException('You already have access to this course');
+    if (!c || (c.plan !== 'PREMIUM' && !enr?.revokedAt)) throw new BadRequestException('This course does not need payment');
+    if (enr && !enr.revokedAt && (!enr.expiresAt || enr.expiresAt > new Date())) throw new ConflictException('You already have access to this course');
     if (await this.db.paymentRequest.findFirst({ where: { userId: req.user.id, courseId: id, status: 'PENDING' } })) throw new ConflictException('You already have a pending request for this course');
 
     const cfg = await this.loadCheckout();
@@ -234,6 +299,63 @@ export class AppController implements OnModuleInit {
   async seen(@Param('id') id: string, @Req() req: any) {
     await this.db.enrollment.updateMany({ where: { id, userId: req.user.id }, data: { celebrated: true } });
     return { ok: true };
+  }
+
+  // ---------- Labs (MCQs / practice) ----------
+  private lines(s: any) { return String(s || '').split('\n').map((x) => x.trim()).filter(Boolean); }
+  private nums(s: any) { return String(s || '').split(/[\s,]+/).map((n) => parseInt(n) - 1).filter((n) => n >= 0); }
+
+  @UseGuards(AuthGuard) @Get('my/courses/:id/labs')
+  async myLabs(@Param('id') id: string, @Req() req: any) {
+    await this.access(req.user, id);
+    const labs = await this.db.lab.findMany({ where: { courseId: id, published: true }, orderBy: [{ order: 'asc' }, { createdAt: 'asc' }] });
+    const attempts = await this.db.labAttempt.findMany({ where: { userId: req.user.id, labId: { in: labs.map((l) => l.id) } } });
+    return labs.map((l) => {
+      const mine = attempts.filter((a) => a.labId === l.id);
+      return {
+        id: l.id, title: l.title, description: l.description, kind: l.kind, timeLimitMin: l.timeLimitMin, passPercent: l.passPercent,
+        questions: (l.items as any[]).length, attempts: mine.length, best: mine.length ? Math.max(...mine.map((a) => a.percent)) : null, passed: mine.some((a) => a.passed),
+      };
+    });
+  }
+
+  // Correct answers yahan nahi bheje jatay
+  @UseGuards(AuthGuard) @Get('labs/:id')
+  async lab(@Param('id') id: string, @Req() req: any) {
+    const l = await this.db.lab.findUnique({ where: { id } });
+    if (!l || !l.published) throw new NotFoundException();
+    await this.access(req.user, l.courseId);
+    return {
+      id: l.id, title: l.title, description: l.description, kind: l.kind, timeLimitMin: l.timeLimitMin, passPercent: l.passPercent,
+      items: (l.items as any[]).map((q) => ({ type: q.type || 'mcq', text: q.text || '', options: this.lines(q.options), hint: q.hint || '' })),
+    };
+  }
+
+  @UseGuards(AuthGuard) @Post('labs/:id/submit')
+  async submitLab(@Param('id') id: string, @Body() b: any, @Req() req: any) {
+    const l = await this.db.lab.findUnique({ where: { id } });
+    if (!l || !l.published) throw new NotFoundException();
+    await this.access(req.user, l.courseId);
+    const answers = b.answers || {};
+    const norm = (s: string) => s.trim().toLowerCase().replace(/\s+/g, ' ');
+    let total = 0, score = 0;
+    const results = (l.items as any[]).map((q, i) => {
+      const t = q.type || 'mcq', a = answers[i], opts = this.lines(q.options);
+      if (t === 'task') return { type: t, done: !!a, solution: q.solution || '', explanation: q.explanation || '' };
+      total++;
+      let ok = false, correct = '';
+      if (t === 'mcq') { const c = this.nums(q.correct)[0]; ok = a !== undefined && a !== '' && Number(a) === c; correct = opts[c] || ''; }
+      else if (t === 'multi') {
+        const c = this.nums(q.correct).sort(), g = (Array.isArray(a) ? a : []).map(Number).sort();
+        ok = c.length > 0 && c.length === g.length && c.every((x, k) => x === g[k]); correct = c.map((n) => opts[n]).join(', ');
+      } else { const acc = this.lines(q.answers).map(norm); ok = acc.includes(norm(String(a || ''))); correct = this.lines(q.answers)[0] || ''; }
+      if (ok) score++;
+      return { type: t, ok, correct, explanation: q.explanation || '' };
+    });
+    const percent = total ? Math.round((score / total) * 100) : 100;
+    const passed = percent >= l.passPercent;
+    await this.db.labAttempt.create({ data: { labId: id, userId: req.user.id, score, total, percent, passed } });
+    return { score, total, percent, passed, results };
   }
 
   // ---------- Reviews ----------
