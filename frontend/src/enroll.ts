@@ -5,15 +5,20 @@ import { useAuth } from './auth';
 
 export const notifyEnrolled = () => window.dispatchEvent(new Event('enrolled-changed'));
 
-// Enrolled courses + "Enroll Now" action. Login na ho to login/signup, phir wapis aa kar auto-enroll.
+// Active enrollments + "renew" (expire ya admin ne terminate kiya) + Enroll Now action
 export function useEnrollment() {
   const { user } = useAuth();
   const nav = useNavigate();
   const [ids, setIds] = useState<string[]>([]);
+  const [renewIds, setRenewIds] = useState<string[]>([]);
 
   const load = () => {
-    if (!user) return setIds([]);
-    api('/my/enrollments').then((r) => setIds(r.filter((c: any) => !c.enrollment?.expired).map((c: any) => c.id))).catch(() => {});
+    if (!user) { setIds([]); setRenewIds([]); return; }
+    api('/my/enrollments').then((r) => {
+      const blocked = (c: any) => c.enrollment?.expired || c.enrollment?.revoked;
+      setIds(r.filter((c: any) => !blocked(c)).map((c: any) => c.id));
+      setRenewIds(r.filter(blocked).map((c: any) => c.id));
+    }).catch(() => {});
   };
   useEffect(() => {
     load();
@@ -25,5 +30,5 @@ export function useEnrollment() {
     if (!user) return nav(`/login?next=${encodeURIComponent(`/course/${courseId}?enroll=1`)}`);
     try { await api(`/courses/${courseId}/enroll`, { method: 'POST' }); notifyEnrolled(); } catch (e: any) { alert(e.message); }
   };
-  return { enroll, enrolled: (id: string) => ids.includes(id) };
+  return { enroll, enrolled: (id: string) => ids.includes(id), renew: (id: string) => renewIds.includes(id) };
 }

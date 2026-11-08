@@ -40,7 +40,8 @@ export default function Checkout() {
   if (err && !c) return <div className="page"><p className="err">{err}</p></div>;
   if (!c || !cfg) return <div className="page">Loading…</div>;
   const cur = settings.currency;
-  const active = mine && !mine.enrollment.expired;
+  const active = mine && !mine.enrollment.expired && !mine.enrollment.revoked;
+  const payable = c.plan === 'PREMIUM' || !!mine?.enrollment?.revoked;
   const lastRejected = !pending && pays.find((p) => p.courseId === id)?.status === 'REJECTED' ? pays.find((p) => p.courseId === id) : null;
 
   const submit = async () => {
@@ -57,10 +58,11 @@ export default function Checkout() {
     <div className="page checkout">
       <div>
         <h1>{cfg.title}</h1>
-        {c.plan !== 'PREMIUM' && <p>This course is free. <Link to={`/course/${id}`}>Go to the course</Link></p>}
-        {c.plan === 'PREMIUM' && active && <div className="card notice">You already have access to this course. <Link className="btn sm" to={`/dashboard?course=${id}`}>Open in dashboard</Link></div>}
+        {mine?.enrollment?.revoked && <div className="card notice err">Your access to this course was ended by admin. To enroll again, please complete the payment again.</div>}
+        {!payable && <p>This course is free. <Link to={`/course/${id}`}>Go to the course</Link></p>}
+        {payable && active && <div className="card notice">You already have access to this course. <Link className="btn sm" to={`/learn/${id}`}>Open course</Link></div>}
 
-        {c.plan === 'PREMIUM' && !active && pending && (
+        {payable && !active && pending && (
           <div className="card pendingbox">
             <h2>⏳ {cfg.pendingTitle}</h2>
             <p>{cfg.pendingText}</p>
@@ -71,7 +73,7 @@ export default function Checkout() {
           </div>
         )}
 
-        {c.plan === 'PREMIUM' && !active && !pending && (
+        {payable && !active && !pending && (
           <>
             {lastRejected && <div className="card notice err">Your last request was not approved.{lastRejected.note ? ` Reason: ${lastRejected.note}` : ''} Please submit again.</div>}
             {cfg.intro && <p>{cfg.intro}</p>}

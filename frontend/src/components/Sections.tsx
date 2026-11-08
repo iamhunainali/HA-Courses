@@ -98,7 +98,7 @@ function CoursesSec({ d }: any) {
   const [list, setList] = useState<any[] | null>(null);
   const [cats, setCats] = useState<any[]>([]);
   const [tab, setTab] = useState('');
-  const { enroll, enrolled } = useEnrollment();
+  const { enroll, enrolled, renew } = useEnrollment();
   useEffect(() => {
     api(`/courses?category=${d.categoryId || ''}`).then(setList).catch(() => setList([]));
     if (d.showTabs && !d.categoryId) api('/categories').then(setCats).catch(() => {});
@@ -114,7 +114,7 @@ function CoursesSec({ d }: any) {
         </div>
       )}
       {list === null ? <p className="muted" style={{ textAlign: 'center' }}>Loading…</p> : shown.length === 0 ? <p className="muted" style={{ textAlign: 'center' }}>Courses will appear here soon.</p> : (
-        <div className="grid">{shown.map((c) => <CourseCard key={c.id} c={c} enrolled={enrolled(c.id)} onEnroll={() => enroll(c.id)} />)}</div>
+        <div className="grid">{shown.map((c) => <CourseCard key={c.id} c={c} enrolled={enrolled(c.id)} renew={renew(c.id)} onEnroll={() => enroll(c.id)} />)}</div>
       )}
       <div style={{ textAlign: 'center', marginTop: 22 }}><Link className="btn ghost" to="/courses">View all courses</Link></div>
     </>

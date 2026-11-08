@@ -26,7 +26,7 @@ export default function Celebrate() {
     await api(`/my/celebrations/${cur.id}/seen`, { method: 'POST' }).catch(() => {});
     setQueue(queue.slice(1));
     window.dispatchEvent(new Event('enrolled-changed'));
-    if (go) nav(`/dashboard?course=${cur.courseId}`);
+    if (go) nav(`/learn/${cur.courseId}`);
   };
   return (
     <div className="modal-back">
