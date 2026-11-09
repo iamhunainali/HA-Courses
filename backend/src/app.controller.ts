@@ -232,18 +232,30 @@ export class AppController implements OnModuleInit {
   // Protected video streaming (Range support sendFile se). Token query se bhi chalta hai.
   @UseGuards(AuthGuard) @Get('stream/:id')
   async stream(@Param('id') id: string, @Req() req: any, @Res() res: any) {
+    // Address bar se direct open / "save as" block: browser ka video player 'video' destination bhejta hai
+    const dest = String(req.headers['sec-fetch-dest'] || '');
+    if (dest && dest !== 'video') throw new ForbiddenException('Streaming only');
     const l = await this.db.lesson.findUnique({ where: { id } });
     if (!l) throw new NotFoundException();
     await this.access(req.user, l.courseId);
+    res.setHeader('Content-Disposition', 'inline');
+    res.setHeader('Cache-Control', 'private, no-store');
+    res.setHeader('X-Content-Type-Options', 'nosniff');
     res.sendFile(join(UP, 'private', l.video));
   }
 
+  // Resources: sirf PDF. ?dl=1 par download, warna inline view
   @UseGuards(AuthGuard) @Get('files/:id')
   async file(@Param('id') id: string, @Req() req: any, @Res() res: any) {
     const f = await this.db.lessonFile.findUnique({ where: { id }, include: { lesson: true } });
     if (!f) throw new NotFoundException();
     await this.access(req.user, f.lesson.courseId);
-    res.download(join(UP, 'private', f.path), f.name);
+    if (!/\.pdf$/i.test(f.name)) throw new ForbiddenException('Only PDF resources are available');
+    const p = join(UP, 'private', f.path);
+    if (req.query.dl === '1') return res.download(p, f.name);
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', 'inline');
+    res.sendFile(p);
   }
 
   // ---------- Checkout (premium courses) ----------
@@ -280,8 +292,13 @@ export class AppController implements OnModuleInit {
       answers.push({ key: f.key, label: f.label, type: f.type, value });
     }
     if (cfg.terms && given.__terms !== true && given.__terms !== 'true') throw new BadRequestException('Please tick the confirmation box');
+    const fatherName = String(b.fatherName || '').trim();
+    const phone = String(b.phone || '').trim();
+    if (fatherName.length < 2) throw new BadRequestException('Father name is required');
+    if (!/^\+?[0-9][0-9\s-]{8,18}$/.test(phone)) throw new BadRequestException('Enter a valid phone number');
+    await this.db.user.update({ where: { id: req.user.id }, data: { fatherName, phone } });
     const hours = Number(cfg.reviewHours) || 3;
-    const r = await this.db.paymentRequest.create({ data: { userId: req.user.id, courseId: id, answers, amount: c.price, days: c.durationDays, dueAt: new Date(Date.now() + hours * 3600 * 1000) } });
+    const r = await this.db.paymentRequest.create({ data: { userId: req.user.id, courseId: id, answers, fatherName, phone, amount: c.price, days: c.durationDays, dueAt: new Date(Date.now() + hours * 3600 * 1000) } });
     await this.db.notification.create({ data: { userId: req.user.id, sender: 'Payments', title: 'Payment request received', message: `We received your request for "${c.title}". Review time: up to ${hours} hours. You will be notified when access is granted.` } });
     return r;
   }

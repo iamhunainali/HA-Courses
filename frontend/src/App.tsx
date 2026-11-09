@@ -1,3 +1,4 @@
+import { useEffect } from 'react';
 import { Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import { useAuth } from './auth';
 import Header from './components/Header';
@@ -24,6 +25,14 @@ function Protected({ children, admin }: { children: any; admin?: boolean }) {
 }
 
 export default function App() {
+  const { user } = useAuth();
+  // Users ke liye video/image par right-click aur drag-save band (admin ko chhoot)
+  useEffect(() => {
+    const block = (e: any) => { if (['VIDEO', 'IMG'].includes(e.target?.tagName) && user?.role !== 'SUPER_ADMIN') e.preventDefault(); };
+    document.addEventListener('contextmenu', block);
+    document.addEventListener('dragstart', block);
+    return () => { document.removeEventListener('contextmenu', block); document.removeEventListener('dragstart', block); };
+  }, [user]);
   return (
     <div className="app">
       <Header />

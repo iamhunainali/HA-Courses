@@ -3,6 +3,7 @@ import { Link, useParams } from 'react-router-dom';
 import { api, upload } from '../api';
 import Progress from '../components/Progress';
 import { useSettings } from '../settings';
+import { useAuth } from '../auth';
 import { notifyEnrolled } from '../enroll';
 
 const hms = (ms: number) => {
@@ -26,6 +27,9 @@ export default function Checkout() {
   const [vals, setVals] = useState<any>({});
   const [files, setFiles] = useState<Record<string, File>>({});
   const [terms, setTerms] = useState(false);
+  const { user } = useAuth();
+  const [fatherName, setFatherName] = useState(user?.fatherName || '');
+  const [phone, setPhone] = useState(user?.phone || '');
   const [err, setErr] = useState('');
   const [pct, setPct] = useState<number | null>(null);
 
@@ -48,6 +52,7 @@ export default function Checkout() {
     setErr('');
     const fd = new FormData();
     fd.append('answers', JSON.stringify({ ...vals, __terms: terms }));
+    fd.append('fatherName', fatherName); fd.append('phone', phone);
     Object.entries(files).forEach(([k, f]) => fd.append(k, f));
     setPct(0);
     try { await upload(`/courses/${id}/checkout`, fd, 'POST', setPct); await load(); notifyEnrolled(); } catch (e: any) { setErr(e.message); }
@@ -82,6 +87,8 @@ export default function Checkout() {
               {(cfg.methods || []).map((m: any, i: number) => <div className="card" key={i}><b>{m.name}</b><p style={{ whiteSpace: 'pre-wrap', margin: '6px 0 0' }}>{m.details}</p></div>)}
             </div>
             <div className="card">
+              <label className="fld"><span>Father name *</span><input value={fatherName} onChange={(e) => setFatherName(e.target.value)} placeholder="Father's full name" /></label>
+              <label className="fld"><span>Phone number *</span><input type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="+92 3XX XXXXXXX" /></label>
               {(cfg.fields || []).map((f: any) => (
                 <label className="fld" key={f.key}><span>{f.label}{f.required && ' *'}</span>
                   {f.type === 'textarea' ? <textarea rows={3} value={vals[f.key] || ''} onChange={(e) => setVals({ ...vals, [f.key]: e.target.value })} />

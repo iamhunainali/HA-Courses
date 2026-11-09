@@ -37,7 +37,7 @@ export default function VideoPlayer({ src }: { src: string }) {
   return (
     <div className="player" ref={box} onMouseMove={wake} onMouseLeave={() => playing && setShow(false)}>
       <video
-        ref={v} src={src} autoPlay onClick={toggle} controlsList="nodownload" onContextMenu={(e) => e.preventDefault()}
+        ref={v} src={src} autoPlay onClick={toggle} controlsList="nodownload noremoteplayback" disablePictureInPicture draggable={false} onContextMenu={(e) => e.preventDefault()}
         onPlay={() => { setPlaying(true); wake(); }} onPause={() => { setPlaying(false); setShow(true); }}
         onTimeUpdate={() => setT(v.current!.currentTime)} onLoadedMetadata={() => setD(v.current!.duration)}
       />

@@ -4,11 +4,11 @@ export const DEFAULT_SECTIONS: any[] = [
     { badge: 'Admissions open', title: 'Build job-ready skills online', subtitle: 'Structured video courses, downloadable notes and real projects. Learn at your own pace.',
       bullets: 'Learn anytime, on any device\nNotes and resources with every course\nSupport from instructors',
       buttonText: 'Explore courses', buttonLink: '/courses', button2Text: 'Create free account', button2Link: '/signup',
-      bg: 'linear-gradient(135deg,#0f3d4c,#0f6b5c)', color: '#ffffff' },
+      bg: 'linear-gradient(135deg,#14213d,#1f3a5f)', color: '#ffffff' },
     { badge: 'New programs', title: 'Specialization tracks', subtitle: 'Short, focused programs that take you from beginner to professional.',
-      buttonText: 'View programs', buttonLink: '/courses', bg: 'linear-gradient(135deg,#2b1a5c,#5b3fb5)', color: '#ffffff' },
+      buttonText: 'View programs', buttonLink: '/courses', bg: 'linear-gradient(135deg,#3d1c2e,#7a2e4d)', color: '#ffffff' },
     { badge: 'Student voices', title: 'Learn with a community', subtitle: 'Read what our students say and share your own experience.',
-      buttonText: 'Read reviews', buttonLink: '/reviews', bg: 'linear-gradient(135deg,#6b3300,#c2701a)', color: '#ffffff' },
+      buttonText: 'Read reviews', buttonLink: '/reviews', bg: 'linear-gradient(135deg,#4a3410,#9a7b2f)', color: '#ffffff' },
   ] } },
   { type: 'photoSlider', data: { images: [] } },
   { type: 'stats', data: { bg: '#ffffff', items: [
@@ -23,5 +23,5 @@ export const DEFAULT_SECTIONS: any[] = [
     bullets: 'Guided exercises\nDownloadable resources\nInstructor feedback', buttonText: 'Browse courses', buttonLink: '/courses', imageSide: 'right' } },
   { type: 'reviews', data: { title: '' } },
   { type: 'richtext', data: { bg: '#ffffff', title: 'Why learn with us', body: 'Our platform brings together flexible, self-paced learning and carefully prepared course material.\n\n## Flexible learning\nStudy whenever you want, from anywhere, on any device.\n\n## Practical content\nVideos, notes and resources prepared by instructors, available in your dashboard after you enroll.' } },
-  { type: 'cta', data: { title: 'Ready to start learning?', text: 'Create your free account and enroll in your first course today.', buttonText: 'Sign up free', buttonLink: '/signup', bg: 'linear-gradient(135deg,#0f3d4c,#0f6b5c)', color: '#ffffff' } },
+  { type: 'cta', data: { title: 'Ready to start learning?', text: 'Create your free account and enroll in your first course today.', buttonText: 'Sign up free', buttonLink: '/signup', bg: 'linear-gradient(135deg,#14213d,#1f3a5f)', color: '#ffffff' } },
 ];

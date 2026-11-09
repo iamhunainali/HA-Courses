@@ -40,6 +40,8 @@ model User {
   suspendedUntil DateTime?
   suspendReason  String?
   failedStreak   Int           @default(0)
+  fatherName     String?
+  phone          String?
   progress      LessonProgress[]
 }
 
@@ -167,6 +169,8 @@ model PaymentRequest {
   answers    Json
   amount     Float     @default(0)
   days       Int       @default(0)
+  fatherName String    @default("")
+  phone      String    @default("")
   status     String    @default("PENDING")
   note       String?
   createdAt  DateTime  @default(now())

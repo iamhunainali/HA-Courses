@@ -431,7 +431,7 @@ function SettingsTab() {
       {field('footerText', 'Footer text')}
       {field('contactEmail', 'Contact email')}
       {field('currency', 'Currency symbol (e.g. Rs, $)')}
-      <label>Brand color <input type="color" className="colorpick" value={f.brandColor || '#0f6b5c'} onChange={(e) => setF({ ...f, brandColor: e.target.value })} /></label>
+      <label>Brand color <input type="color" className="colorpick" value={f.brandColor || '#1f3a5f'} onChange={(e) => setF({ ...f, brandColor: e.target.value })} /></label>
       <div className="row"><button className="btn" onClick={save}>Save settings</button>{msg && <span className="ok">{msg}</span>}</div>
     </div>
   );

@@ -73,7 +73,7 @@ export function UsersPanel() {
             {shown.map((u) => (
               <Fragment key={u.id}>
                 <tr>
-                  <td><b>{u.name}</b><br /><small className="muted">{u.email}</small></td>
+                  <td><b>{u.name}</b><br /><small className="muted">{u.email}</small>{u.phone && <><br /><small className="muted">📞 {u.phone}{u.fatherName ? ` · Father: ${u.fatherName}` : ''}</small></>}</td>
                   <td><span className={'dot ' + (u.online ? 'on' : '')} /> {u.online ? 'Online' : `Offline · ${ago(u.lastSeen || u.lastLogin)}`}</td>
                   <td><span className={'tag s-' + u.status}>{u.role === 'SUPER_ADMIN' ? 'ADMIN' : u.status}</span>{u.warnings > 0 && <small> ⚠ {u.warnings}</small>}{u.status === 'SUSPENDED' && <small className="muted"><br />{u.suspendedUntil ? 'back in ' + Math.max(0, Math.ceil((new Date(u.suspendedUntil).getTime() - Date.now()) / 60000)) + ' min' : 'until activated'}</small>}</td>
                   <td>{u.loginCount}</td>
@@ -219,6 +219,8 @@ export function PaymentsPanel() {
           <small className="muted">Submitted {new Date(p.createdAt).toLocaleString()}</small>
           {p.status === 'PENDING' && <small className={new Date(p.dueAt) < new Date() ? 'err' : 'ok'}> · {due(p)}</small>}
           <div className="answers">
+            <div><span className="muted">Father name: </span><b>{p.fatherName || '-'}</b></div>
+            <div><span className="muted">Phone: </span><b>{p.phone || '-'}</b></div>
             {(p.answers || []).map((a: any) => (
               <div key={a.key}><span className="muted">{a.label}: </span>
                 {a.type === 'file' ? (a.value ? <a href={`/api/admin/payment-files/${a.value}?token=${token()}`} target="_blank" rel="noreferrer">View file</a> : '-') : (a.value || '-')}

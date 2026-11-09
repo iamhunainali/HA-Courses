@@ -111,9 +111,9 @@ export class AdminController {
     return { ok: true };
   }
 
-  @Post('lessons/:id/files') @UseInterceptors(FileInterceptor('file', store('private')))
+  @Post('lessons/:id/files') @UseInterceptors(FileInterceptor('file', { ...store('private'), fileFilter: (_r, f, cb) => cb(null, /\.pdf$/i.test(f.originalname) && f.mimetype === 'application/pdf') }))
   addFile(@Param('id') id: string, @UploadedFile() f: any) {
-    if (!f) throw new BadRequestException('File required');
+    if (!f) throw new BadRequestException('Only PDF files are allowed in resources');
     return this.db.lessonFile.create({ data: { lessonId: id, name: f.originalname, path: f.filename } });
   }
 
@@ -159,7 +159,7 @@ export class AdminController {
     const rows = await this.db.user.findMany({
       where: q ? { OR: [{ email: { contains: q, mode: 'insensitive' } }, { name: { contains: q, mode: 'insensitive' } }] } : {},
       orderBy: { createdAt: 'desc' },
-      select: { id: true, name: true, email: true, role: true, status: true, warnings: true, createdAt: true, lastLogin: true, suspendedUntil: true, lastSeen: true, loginCount: true, failedLogins: true, _count: { select: { enrollments: true } } },
+      select: { id: true, name: true, email: true, role: true, status: true, warnings: true, createdAt: true, lastLogin: true, fatherName: true, phone: true, suspendedUntil: true, lastSeen: true, loginCount: true, failedLogins: true, _count: { select: { enrollments: true } } },
     });
     return rows.map((u) => ({ ...u, online: !!u.lastSeen && Date.now() - u.lastSeen.getTime() < 120000 }));
   }

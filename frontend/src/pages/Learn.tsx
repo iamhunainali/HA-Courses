@@ -5,6 +5,8 @@ import VideoPlayer from '../components/VideoPlayer';
 import LabRunner from '../components/LabRunner';
 import { useStored } from '../useStored';
 
+const isPdf = (n: string) => /\.pdf$/i.test(n);
+
 // Course workspace: Lectures, Labs, Resources, Overview
 export default function Learn() {
   const { id } = useParams();
@@ -47,7 +49,7 @@ export default function Learn() {
     if (!g) { g = { name: n, items: [] }; groups.push(g); }
     g.items.push({ l: x, i });
   });
-  const files = (lessons || []).flatMap((x) => x.files.map((f: any) => ({ ...f, lecture: x.title })));
+  const files = (lessons || []).flatMap((x) => x.files.map((f: any) => ({ ...f, lecture: x.title }))).filter((f: any) => isPdf(f.name));
   const setTab = (t: string) => { setLabId(null); setSp({ tab: t }); };
 
   return (
@@ -71,7 +73,7 @@ export default function Learn() {
               <button className={'btn ' + (l.completed ? '' : 'ghost')} onClick={() => toggle(l)}>{l.completed ? '✓ Completed' : 'Mark as completed'}</button>
             </div>
             {l.description && <p className="desc muted">{l.description}</p>}
-            {l.files.length > 0 && <div className="files">{l.files.map((f: any) => <a key={f.id} href={`/api/files/${f.id}?token=${token()}`} className="file">📎 {f.name}</a>)}</div>}
+            {l.files.filter((f: any) => isPdf(f.name)).length > 0 && <div className="files">{l.files.filter((f: any) => isPdf(f.name)).map((f: any) => <a key={f.id} href={`/api/files/${f.id}?token=${token()}`} target="_blank" rel="noreferrer" className="file">📄 {f.name}</a>)}</div>}
             <div className="row" style={{ marginTop: 12 }}>
               <button className="btn ghost sm" disabled={cur === 0} onClick={() => setCur(cur - 1)}>← Previous</button>
               <button className="btn ghost sm" disabled={cur === lessons.length - 1} onClick={() => setCur(cur + 1)}>Next →</button>
@@ -109,8 +111,8 @@ export default function Learn() {
         </div>
       ))}
 
-      {tab === 'resources' && (files.length === 0 ? <p className="muted">No notes or files have been uploaded for this course.</p> : (
-        <div className="card">{files.map((f: any) => <div className="line" key={f.id}><span>📎 {f.name} <small className="muted">· {f.lecture}</small></span><a className="btn sm ghost" href={`/api/files/${f.id}?token=${token()}`}>Download</a></div>)}</div>
+      {tab === 'resources' && (files.length === 0 ? <p className="muted">No PDF resources have been uploaded for this course.</p> : (
+        <div className="card">{files.map((f: any) => <div className="line" key={f.id}><span>📄 {f.name} <small className="muted">· {f.lecture}</small></span><a className="btn sm ghost" href={`/api/files/${f.id}?token=${token()}&dl=1`}>Download PDF</a></div>)}</div>
       ))}
 
       {tab === 'overview' && (
