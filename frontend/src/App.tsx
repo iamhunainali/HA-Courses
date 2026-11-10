@@ -13,14 +13,19 @@ import ReviewsPage from './pages/ReviewsPage';
 import Admin from './pages/Admin';
 import Checkout from './pages/Checkout';
 import Celebrate from './components/Celebrate';
+import PopupHost from './components/PopupHost';
+import Support from './pages/Support';
+import ApplyTeacher from './pages/ApplyTeacher';
+import TeacherPortal from './pages/TeacherPortal';
 import SuspendedModal from './components/SuspendedModal';
 
-function Protected({ children, admin }: { children: any; admin?: boolean }) {
+function Protected({ children, admin, teacher }: { children: any; admin?: boolean; teacher?: boolean }) {
   const { user, ready } = useAuth();
   const loc = useLocation();
   if (!ready) return <div className="page">Loading…</div>;
   if (!user) return <Navigate to={`/login?next=${encodeURIComponent(loc.pathname + loc.search)}`} replace />;
   if (admin && user.role !== 'SUPER_ADMIN') return <Navigate to="/" replace />;
+  if (teacher && user.role !== 'TEACHER' && user.role !== 'SUPER_ADMIN') return <Navigate to="/" replace />;
   return children;
 }
 
@@ -38,6 +43,7 @@ export default function App() {
       <Header />
       <Celebrate />
       <SuspendedModal />
+      <PopupHost />
       <main>
         <Routes>
           <Route path="/" element={<Home />} />
@@ -49,6 +55,9 @@ export default function App() {
           <Route path="/learn/:id" element={<Protected><Learn /></Protected>} />
           <Route path="/reviews" element={<Protected><ReviewsPage /></Protected>} />
           <Route path="/checkout/:id" element={<Protected><Checkout /></Protected>} />
+          <Route path="/support" element={<Protected><Support /></Protected>} />
+          <Route path="/apply-teacher" element={<Protected><ApplyTeacher /></Protected>} />
+          <Route path="/teacher" element={<Protected teacher><TeacherPortal /></Protected>} />
           <Route path="/admin" element={<Protected admin><Admin /></Protected>} />
           <Route path="*" element={<Navigate to="/" />} />
         </Routes>

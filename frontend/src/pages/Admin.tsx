@@ -5,6 +5,8 @@ import { useStored } from '../useStored';
 import Progress from '../components/Progress';
 import HomepageBuilder from './HomepageBuilder';
 import LabsPanel from './AdminLabs';
+import { PopupsPanel, EmailPanel, SupportPanel, TeachersPanel, GatewaysPanel } from './AdminMore';
+import { CoursePreview, HeaderPreview, PreviewBox, SettingsPreview } from '../components/AdminPreview';
 import { UsersPanel, MessagesPanel, EnrollmentsPanel, PaymentsPanel, CheckoutPanel } from './AdminExtra';
 import { parseMenu, useSettings } from '../settings';
 
@@ -14,23 +16,27 @@ const GROUPS = [
   { name: 'Overview', items: [{ id: 'Overview', label: 'Dashboard', icon: '📊' }] },
   { name: 'Website', items: [
     { id: 'Homepage', label: 'Homepage builder', icon: '🏠' }, { id: 'Header', label: 'Header and menu', icon: '🧭' },
-    { id: 'Slides', label: 'Image slides', icon: '🖼️' }, { id: 'Settings', label: 'Settings', icon: '⚙️' }] },
+    { id: 'Slides', label: 'Image slides', icon: '🖼️' }, { id: 'Popups', label: 'Popup creator', icon: '📣' }, { id: 'Settings', label: 'Settings', icon: '⚙️' }] },
   { name: 'Courses', items: [
-    { id: 'Courses', label: 'Courses and plans', icon: '📚' }, { id: 'Videos', label: 'Lectures (videos)', icon: '🎬' },
+    { id: 'Courses', label: 'Courses and plans', icon: '📚' }, { id: 'Videos', label: 'Lectures (video / link)', icon: '🎬' },
     { id: 'Labs', label: 'Labs and quizzes', icon: '🧪' }, { id: 'Categories', label: 'Categories', icon: '🏷️' }, { id: 'Course categories', label: 'Category display', icon: '🗂️' }] },
   { name: 'Students', items: [
     { id: 'Users', label: 'Users and activity', icon: '👥' }, { id: 'Enrollments', label: 'Enrollments', icon: '🎓' },
-    { id: 'Payments', label: 'Payment requests', icon: '💳' }, { id: 'Checkout', label: 'Checkout page', icon: '🔒' },
-    { id: 'Messages', label: 'Messages', icon: '✉️' }, { id: 'Reviews', label: 'Reviews', icon: '⭐' }] },
+    { id: 'Payments', label: 'Payment requests', icon: '💳' }, { id: 'Gateways', label: 'Payment gateways', icon: '🏦' }, { id: 'Checkout', label: 'Checkout page', icon: '🔒' },
+    { id: 'Reviews', label: 'Reviews', icon: '⭐' }] },
+  { name: 'Teachers', items: [{ id: 'Teachers', label: 'Teacher applications', icon: '🧑‍🏫' }] },
+  { name: 'Communication', items: [
+    { id: 'Support', label: 'Support inbox', icon: '💬' }, { id: 'Messages', label: 'Notifications', icon: '✉️' }, { id: 'Email', label: 'Email and automation', icon: '📧' }] },
 ];
 
 export default function Admin() {
   const [sp, setSp] = useSearchParams();   // tab URL mein: refresh par wahi page
   const tab = sp.get('tab') || 'Overview';
   const setTab = (t: string) => setSp({ tab: t });
-  const [pending, setPending] = useState(0);
+  const [badges, setBadges] = useState<any>({});
+  const pending = badges['Payments'] || 0;
   useEffect(() => {
-    const f = () => api('/admin/stats').then((s) => setPending(s['pending payments'] || 0)).catch(() => {});
+    const f = () => api('/admin/stats').then((s) => setBadges({ Payments: s['pending payments'] || 0, Support: s['support unread'] || 0, Teachers: s['teacher applications'] || 0 })).catch(() => {});
     f(); const i = setInterval(f, 30000); return () => clearInterval(i);
   }, [tab]);
   const label = GROUPS.flatMap((g) => g.items).find((i) => i.id === tab)?.label || tab;
@@ -43,7 +49,7 @@ export default function Admin() {
             {g.items.map((it) => (
               <button key={it.id} className={'anitem' + (tab === it.id ? ' on' : '')} onClick={() => setTab(it.id)}>
                 <span className="anicon">{it.icon}</span><span>{it.label}</span>
-                {it.id === 'Payments' && pending > 0 && <b className="badge2">{pending}</b>}
+                {badges[it.id] > 0 && <b className="badge2">{badges[it.id]}</b>}
               </button>
             ))}
           </div>
@@ -67,6 +73,11 @@ export default function Admin() {
         {tab === 'Enrollments' && <EnrollmentsPanel />}
         {tab === 'Messages' && <MessagesPanel />}
         {tab === 'Settings' && <SettingsTab />}
+        {tab === 'Popups' && <PopupsPanel />}
+        {tab === 'Gateways' && <GatewaysPanel />}
+        {tab === 'Teachers' && <TeachersPanel />}
+        {tab === 'Support' && <SupportPanel />}
+        {tab === 'Email' && <EmailPanel />}
       </section>
     </div>
   );
@@ -153,16 +164,17 @@ function SlidesTab() {
 }
 
 function CoursesTab() {
-  const empty = { title: '', description: '', price: '0', categoryId: '', published: true, plan: 'FREE', durationDays: '0' };
+  const empty = { title: '', description: '', price: '0', categoryId: '', published: true, plan: 'FREE', durationDays: '0', teacherId: '' };
   const [list, setList] = useState<any[]>([]);
   const [cats, setCats] = useState<any[]>([]);
   const [form, setForm] = useState<any>(empty);
+  const [teachers, setTeachers] = useState<any[]>([]);
   const [editId, setEditId] = useState<string | null>(null);
   const [thumb, setThumb] = useState<File | null>(null);
   const [pct, setPct] = useState<number | null>(null);
   const [managing, setManaging] = useState<any>(null);
   const load = () => api('/admin/courses').then(setList);
-  useEffect(() => { load(); api('/categories').then(setCats); }, []);
+  useEffect(() => { load(); api('/categories').then(setCats); api('/admin/teachers').then(setTeachers); }, []);
 
   const save = async () => {
     const f = new FormData();
@@ -172,7 +184,7 @@ function CoursesTab() {
     try { await upload(editId ? `/admin/courses/${editId}` : '/admin/courses', f, editId ? 'PATCH' : 'POST', setPct); setForm(empty); setEditId(null); setThumb(null); load(); } catch (e: any) { alert(e.message); }
     setPct(null);
   };
-  const edit = (c: any) => { setEditId(c.id); setForm({ title: c.title, description: c.description, price: String(c.price), categoryId: c.categoryId || '', published: c.published, plan: c.plan || 'FREE', durationDays: String(c.durationDays || 0) }); window.scrollTo(0, 0); };
+  const edit = (c: any) => { setEditId(c.id); setForm({ title: c.title, description: c.description, price: String(c.price), categoryId: c.categoryId || '', published: c.published, plan: c.plan || 'FREE', durationDays: String(c.durationDays || 0), teacherId: c.teacherId || '' }); window.scrollTo(0, 0); };
   const del = async (id: string) => { if (confirm('Delete course and all its videos?')) { await api(`/admin/courses/${id}`, { method: 'DELETE' }); load(); } };
 
   return (
@@ -185,9 +197,11 @@ function CoursesTab() {
           <select value={form.plan} onChange={(e) => setForm({ ...form, plan: e.target.value })}><option value="FREE">Free plan</option><option value="PREMIUM">Premium plan (checkout)</option></select>
           {form.plan === 'PREMIUM' && <><input placeholder="Price" value={form.price} onChange={(e) => setForm({ ...form, price: e.target.value })} /><input placeholder="Access days (0 = lifetime)" value={form.durationDays} onChange={(e) => setForm({ ...form, durationDays: e.target.value })} /></>}
           <select value={form.categoryId} onChange={(e) => setForm({ ...form, categoryId: e.target.value })}><option value="">No category</option>{cats.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</select>
+          <select value={form.teacherId} onChange={(e) => setForm({ ...form, teacherId: e.target.value })}><option value="">No teacher assigned</option>{teachers.map((t) => <option key={t.id} value={t.id}>Teacher: {t.name}</option>)}</select>
           <label><input type="checkbox" checked={form.published} onChange={(e) => setForm({ ...form, published: e.target.checked })} /> Published</label>
         </div>
         <label className="muted">Thumbnail <input type="file" accept="image/*" onChange={(e) => setThumb(e.target.files?.[0] || null)} /></label>
+        <CoursePreview form={form} cats={cats} thumb={thumb} />
         <Progress pct={pct} />
         <div className="row"><button className="btn" onClick={save}>{editId ? 'Save changes' : 'Post course'}</button>{editId && <button className="btn ghost" onClick={() => { setEditId(null); setForm(empty); }}>Cancel</button>}</div>
       </div>
@@ -204,43 +218,49 @@ function CoursesTab() {
   );
 }
 
-function Lessons({ course, onClose }: { course: any; onClose?: () => void }) {
+export function Lessons({ course, onClose, base = '/admin' }: { course: any; onClose?: () => void; base?: string }) {
   const [list, setList] = useState<any[]>([]);
   const [title, setTitle] = useState('');
   const [section, setSection] = useState('');
+  const [link, setLink] = useState('');
   const [video, setVideo] = useState<File | null>(null);
   const [pct, setPct] = useState<number | null>(null);
   const [fpct, setFpct] = useState<{ id: string; n: number } | null>(null);
-  const load = () => api(`/admin/courses/${course.id}/lessons`).then(setList);
+  const load = () => api(`${base}/courses/${course.id}/lessons`).then(setList);
   useEffect(() => { load(); }, []);
 
   const add = async () => {
     if (!video) return alert('Choose a video');
     const f = new FormData(); f.append('title', title); f.append('section', section); f.append('video', video);
     setPct(0);
-    try { await upload(`/admin/courses/${course.id}/lessons`, f, 'POST', setPct); setTitle(''); setVideo(null); load(); } catch (e: any) { alert(e.message); }
+    try { await upload(`${base}/courses/${course.id}/lessons`, f, 'POST', setPct); setTitle(''); setVideo(null); load(); } catch (e: any) { alert(e.message); }
     setPct(null);
   };
   const addFile = async (lid: string, file: File) => {
     const f = new FormData(); f.append('file', file);
     setFpct({ id: lid, n: 0 });
-    try { await upload(`/admin/lessons/${lid}/files`, f, 'POST', (n) => setFpct({ id: lid, n })); load(); } catch (e: any) { alert(e.message); }
+    try { await upload(`${base}/lessons/${lid}/files`, f, 'POST', (n) => setFpct({ id: lid, n })); load(); } catch (e: any) { alert(e.message); }
     setFpct(null);
   };
-  const editL = async (l: any) => { const t = prompt('Video title', l.title); if (t === null) return; const o = prompt('Order number', String(l.order)); if (o === null) return; const sec = prompt('Section / module', l.section || ''); if (sec === null) return; const desc = prompt('Lecture description (optional)', l.description || ''); if (desc === null) return; await api(`/admin/lessons/${l.id}`, { method: 'PATCH', body: { title: t, order: o, section: sec, description: desc } }); load(); };
-  const delL = async (id: string) => { if (confirm('Delete video?')) { await api(`/admin/lessons/${id}`, { method: 'DELETE' }); load(); } };
-  const delF = async (id: string) => { await api(`/admin/files/${id}`, { method: 'DELETE' }); load(); };
+  const editL = async (l: any) => { const t = prompt('Video title', l.title); if (t === null) return; const o = prompt('Order number', String(l.order)); if (o === null) return; const sec = prompt('Section / module', l.section || ''); if (sec === null) return; const desc = prompt('Lecture description (optional)', l.description || ''); if (desc === null) return; await api(`${base}/lessons/${l.id}`, { method: 'PATCH', body: { title: t, order: o, section: sec, description: desc } }); load(); };
+  const addLink = async () => {
+    if (!link.trim()) return alert('Paste a video link');
+    try { await api(`${base}/courses/${course.id}/lessons-link`, { method: 'POST', body: { title, section, url: link } }); setLink(''); setTitle(''); load(); } catch (e: any) { alert(e.message); }
+  };
+  const delL = async (id: string) => { if (confirm('Delete video?')) { await api(`${base}/lessons/${id}`, { method: 'DELETE' }); load(); } };
+  const delF = async (id: string) => { await api(`${base}/files/${id}`, { method: 'DELETE' }); load(); };
 
   return (
     <div className="card manage">
       <div className="line"><h3>Videos: {course.title}</h3>{onClose && <button className="btn ghost" onClick={onClose}>Close</button>}</div>
       <div className="row"><input placeholder="Lecture title" value={title} onChange={(e) => setTitle(e.target.value)} /><input placeholder="Section / module (optional)" value={section} onChange={(e) => setSection(e.target.value)} /><input type="file" accept="video/*" onChange={(e) => setVideo(e.target.files?.[0] || null)} /><button className="btn" onClick={add}>Upload video</button></div>
       <Progress pct={pct} label="Uploading video" />
+      <div className="row"><input placeholder="Or paste a video link (YouTube, Vimeo, Google Drive or direct .mp4)" value={link} onChange={(e) => setLink(e.target.value)} /><button className="btn ghost" onClick={addLink}>Add link</button></div>
       {list.map((l) => (
         <div className="lesson" key={l.id}>
-          <div className="line"><b>{l.order}. {l.title}</b> {l.section && <small className="tag">{l.section}</small>}<span className="row"><button className="btn sm ghost" onClick={() => editL(l)}>Edit</button><button className="btn sm danger" onClick={() => delL(l.id)}>Delete</button></span></div>
+          <div className="line"><b>{l.order}. {l.title}</b> {l.section && <small className="tag">{l.section}</small>} {l.videoUrl && <small className="tag">🔗 Link</small>}<span className="row"><button className="btn sm ghost" onClick={() => editL(l)}>Edit</button><button className="btn sm danger" onClick={() => delL(l.id)}>Delete</button></span></div>
           {l.files.map((f: any) => <div className="line sub" key={f.id}><span>📎 {f.name}</span><button className="btn danger" onClick={() => delF(f.id)}>Remove</button></div>)}
-          <label className="muted">Add notes/file (optional): <input type="file" onChange={(e) => e.target.files?.[0] && addFile(l.id, e.target.files[0])} /></label>
+          <label className="muted">Add PDF notes (optional): <input type="file" accept="application/pdf" onChange={(e) => e.target.files?.[0] && addFile(l.id, e.target.files[0])} /></label>
           {fpct?.id === l.id && <Progress pct={fpct.n} label="Uploading file" />}
         </div>
       ))}
@@ -432,6 +452,7 @@ function SettingsTab() {
       {field('contactEmail', 'Contact email')}
       {field('currency', 'Currency symbol (e.g. Rs, $)')}
       <label>Brand color <input type="color" className="colorpick" value={f.brandColor || '#1f3a5f'} onChange={(e) => setF({ ...f, brandColor: e.target.value })} /></label>
+      <PreviewBox title="Brand and footer preview"><SettingsPreview f={f} /></PreviewBox>
       <div className="row"><button className="btn" onClick={save}>Save settings</button>{msg && <span className="ok">{msg}</span>}</div>
     </div>
   );
@@ -444,9 +465,10 @@ function HeaderTab() {
   const { settings, reload } = useSettings();
   const [menu, setMenu] = useState<any[]>([]);
   const [showCats, setShowCats] = useState(true);
+  const [showTeach, setShowTeach] = useState(true);
   const [cats, setCats] = useState<any[]>([]);
   const [msg, setMsg] = useState('');
-  useEffect(() => { setMenu(parseMenu(settings.headerMenu, true)); setShowCats(settings.headerShowCategories !== 'false'); }, [settings]);
+  useEffect(() => { setMenu(parseMenu(settings.headerMenu, true)); setShowCats(settings.headerShowCategories !== 'false'); setShowTeach(settings.showTeacherApply !== 'false'); }, [settings]);
   useEffect(() => { api('/categories').then(setCats); }, []);
 
   const upd = (i: number, p: any) => setMenu(menu.map((m, k) => (k === i ? { ...m, ...p } : m)));
@@ -455,7 +477,7 @@ function HeaderTab() {
     [a[i], a[j]] = [a[j], a[i]]; setMenu(a);
   };
   const save = async () => {
-    await api('/admin/settings', { method: 'PATCH', body: { headerMenu: JSON.stringify(menu), headerShowCategories: String(showCats) } });
+    await api('/admin/settings', { method: 'PATCH', body: { headerMenu: JSON.stringify(menu), headerShowCategories: String(showCats), showTeacherApply: String(showTeach) } });
     await Promise.all(cats.map((c) => api(`/admin/categories/${c.id}`, { method: 'PATCH', body: { showInHeader: c.showInHeader } })));
     await reload(); siteChanged(); setMsg('Saved. Header updated.');
   };
@@ -480,6 +502,7 @@ function HeaderTab() {
       <div className="card">
         <h3>Categories in header</h3>
         <label><input type="checkbox" checked={showCats} onChange={(e) => setShowCats(e.target.checked)} /> Show categories in header</label>
+        <label className="fld"><input type="checkbox" checked={showTeach} onChange={(e) => setShowTeach(e.target.checked)} /> Show "Apply for Teaching" tab in header</label>
         {showCats && cats.map((c, i) => (
           <label className="line" key={c.id}>
             <span>{c.name}</span>
@@ -488,6 +511,7 @@ function HeaderTab() {
         ))}
         {cats.length === 0 && <p className="muted">No categories yet. Add them in the Categories tab.</p>}
       </div>
+      <PreviewBox title="Header preview"><HeaderPreview menu={menu} showCats={showCats} cats={cats} showTeach={showTeach} siteName={settings.siteName} /></PreviewBox>
       <div className="row"><button className="btn" onClick={save}>Save header</button>{msg && <span className="ok">{msg}</span>}</div>
     </>
   );
@@ -516,6 +540,7 @@ function CourseCategoriesTab() {
           <span className="row"><button className="btn sm ghost" onClick={() => move(i, -1)}>▲</button><button className="btn sm ghost" onClick={() => move(i, 1)}>▼</button></span>
         </div>
       ))}
+      <PreviewBox title="Courses page filters preview"><div className="filters"><span className="chip on">All</span>{cats.filter((c) => c.showInCourses).map((c) => <span key={c.id} className="chip">{c.name}</span>)}</div></PreviewBox>
     </div>
   );
 }

@@ -16,7 +16,7 @@ export function parseMenu(s: string, all = false): any[] {
 export const DEFAULTS: any = {
   siteName: 'Learning Portal', tagline: 'Learn at your own pace', footerText: 'All rights reserved.',
   coursesTitle: 'Courses', reviewsTitle: 'What students say', contactEmail: '', brandColor: '#1f3a5f', currency: 'Rs',
-  headerShowCategories: 'true', headerMenu: JSON.stringify(DEFAULT_MENU),
+  headerShowCategories: 'true', showTeacherApply: 'true', headerMenu: JSON.stringify(DEFAULT_MENU),
 };
 const Ctx = createContext<any>({ settings: DEFAULTS, reload: () => {} });
 export const useSettings = () => useContext(Ctx);

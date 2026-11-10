@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router-dom';
 import { api, token } from '../api';
-import VideoPlayer from '../components/VideoPlayer';
+import LectureVideo from '../components/LectureVideo';
 import LabRunner from '../components/LabRunner';
 import { useStored } from '../useStored';
 
@@ -67,7 +67,7 @@ export default function Learn() {
       {tab === 'lectures' && (lessons === null ? <p>Loading…</p> : lessons.length === 0 ? <p className="muted">No lectures have been added yet.</p> : (
         <div className="learn" style={{ padding: 0 }}>
           <div className="main">
-            <VideoPlayer key={l.id} src={`/api/stream/${l.id}?token=${token()}`} />
+            <LectureVideo key={l.id} lesson={l} />
             <div className="line" style={{ border: 0 }}>
               <h2 style={{ margin: 0 }}>{l.title}</h2>
               <button className={'btn ' + (l.completed ? '' : 'ghost')} onClick={() => toggle(l)}>{l.completed ? '✓ Completed' : 'Mark as completed'}</button>

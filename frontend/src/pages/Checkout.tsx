@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { Link, useParams, useSearchParams } from 'react-router-dom';
 import { api, upload } from '../api';
 import Progress from '../components/Progress';
 import { useSettings } from '../settings';
@@ -30,6 +30,9 @@ export default function Checkout() {
   const { user } = useAuth();
   const [fatherName, setFatherName] = useState(user?.fatherName || '');
   const [phone, setPhone] = useState(user?.phone || '');
+  const [online, setOnline] = useState<any>({});
+  const [sp] = useSearchParams();
+  useEffect(() => { api('/payments/methods').then(setOnline).catch(() => {}); }, []);
   const [err, setErr] = useState('');
   const [pct, setPct] = useState<number | null>(null);
 
@@ -48,6 +51,16 @@ export default function Checkout() {
   const payable = c.plan === 'PREMIUM' || !!mine?.enrollment?.revoked;
   const lastRejected = !pending && pays.find((p) => p.courseId === id)?.status === 'REJECTED' ? pays.find((p) => p.courseId === id) : null;
 
+  // JazzCash / Easypaisa: signed form banakar gateway ke page par POST karta hai
+  const payOnline = async (gw: string) => {
+    setErr('');
+    try {
+      const r = await api(`/payments/${gw}/start`, { method: 'POST', body: { courseId: id } });
+      const form = document.createElement('form'); form.method = 'POST'; form.action = r.action;
+      Object.entries(r.fields).forEach(([k, v]) => { const i = document.createElement('input'); i.type = 'hidden'; i.name = k; i.value = String(v); form.appendChild(i); });
+      document.body.appendChild(form); form.submit();
+    } catch (e: any) { setErr(e.message); }
+  };
   const submit = async () => {
     setErr('');
     const fd = new FormData();
@@ -63,6 +76,9 @@ export default function Checkout() {
     <div className="page checkout">
       <div>
         <h1>{cfg.title}</h1>
+        {sp.get('paid') && <div className="card notice ok">✅ Payment successful. Your access is being activated.</div>}
+        {sp.get('submitted') && <div className="card notice">⏳ Payment submitted. Access will be granted once it is confirmed.</div>}
+        {sp.get('failed') && <div className="card notice err">❌ The online payment was not completed. You can try again.</div>}
         {mine?.enrollment?.revoked && <div className="card notice err">Your access to this course was ended by admin. To enroll again, please complete the payment again.</div>}
         {!payable && <p>This course is free. <Link to={`/course/${id}`}>Go to the course</Link></p>}
         {payable && active && <div className="card notice">You already have access to this course. <Link className="btn sm" to={`/learn/${id}`}>Open course</Link></div>}
@@ -83,6 +99,16 @@ export default function Checkout() {
             {lastRejected && <div className="card notice err">Your last request was not approved.{lastRejected.note ? ` Reason: ${lastRejected.note}` : ''} Please submit again.</div>}
             {cfg.intro && <p>{cfg.intro}</p>}
             {cfg.instructions && <p className="muted">{cfg.instructions}</p>}
+            {(online.jazzcash || online.easypaisa) && (
+              <div className="card"><b>Pay securely online</b><p className="muted" style={{ margin: '4px 0 10px' }}>Instant access after a successful payment.</p>
+                <div className="row">
+                  {online.jazzcash && <button className="btn gw jazz" onClick={() => payOnline('jazzcash')}>Pay with JazzCash</button>}
+                  {online.easypaisa && <button className="btn gw easy" onClick={() => payOnline('easypaisa')}>Pay with Easypaisa</button>}
+                </div>
+                {err && <p className="err">{err}</p>}
+                <p className="muted" style={{ margin: '10px 0 0' }}>Or pay manually using the details below and submit the form.</p>
+              </div>
+            )}
             <div className="methods">
               {(cfg.methods || []).map((m: any, i: number) => <div className="card" key={i}><b>{m.name}</b><p style={{ whiteSpace: 'pre-wrap', margin: '6px 0 0' }}>{m.details}</p></div>)}
             </div>

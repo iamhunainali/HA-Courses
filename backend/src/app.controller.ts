@@ -12,13 +12,14 @@ import { diskStorage } from 'multer';
 import { extname } from 'path';
 import { AuthGuard } from './guards';
 import { DEFAULT_CHECKOUT } from './checkout.defaults';
+import { MailService } from './mail.service';
 
 const UP = process.env.UPLOAD_DIR || '/data/uploads';
 const safe = (u: any) => { const { password, ...r } = u; return r; };
 
 @Controller()
 export class AppController implements OnModuleInit {
-  constructor(private db: PrismaService, private jwt: JwtService) {}
+  constructor(private db: PrismaService, private jwt: JwtService, private mail: MailService) {}
 
   // Super admin pehli dafa auto-create hota hai (password dobara overwrite nahi hota)
   async onModuleInit() {
@@ -81,6 +82,7 @@ export class AppController implements OnModuleInit {
       throw new BadRequestException('Name, valid email and password (min 6 chars) required');
     if (await this.db.user.findUnique({ where: { email } })) throw new ConflictException('Email already registered');
     const u = await this.db.user.create({ data: { name: b.name.trim(), email, password: await bcrypt.hash(b.password, 10), lastLogin: new Date(), lastSeen: new Date(), loginCount: 1 } });
+    this.mail.trigger('welcome', u.email, { name: u.name });
     return { token: this.jwt.sign({ sub: u.id }), user: safe(u) };
   }
 
@@ -106,6 +108,7 @@ export class AppController implements OnModuleInit {
         if (streak >= MAX_FAILED) {
           const s = await this.db.user.update({ where: { id: u.id }, data: { status: 'SUSPENDED', suspendedUntil: new Date(Date.now() + 3600 * 1000), suspendReason: 'Too many failed login attempts', failedStreak: 0 } });
           await this.log('AUTO_SUSPEND', email, u.id, req);
+          this.mail.trigger('suspended', u.email, { name: u.name, reason: 'Too many failed login attempts.', until: 'after 1 hour' });
           await this.db.notification.create({ data: { userId: u.id, sender: 'Security', title: 'Account suspended', message: 'Your account was suspended for 1 hour after 4 failed login attempts.' } });
           throw new ForbiddenException(this.suspendedBody(s));
         }
@@ -211,7 +214,7 @@ export class AppController implements OnModuleInit {
     const [lessons, done] = await Promise.all([
       this.db.lesson.findMany({
         where: { courseId: id }, orderBy: [{ order: 'asc' }, { createdAt: 'asc' }],
-        select: { id: true, title: true, order: true, section: true, description: true, files: { select: { id: true, name: true } } },
+        select: { id: true, title: true, order: true, section: true, description: true, videoUrl: true, files: { select: { id: true, name: true } } },
       }),
       this.db.lessonProgress.findMany({ where: { userId: req.user.id, lesson: { courseId: id } }, select: { lessonId: true } }),
     ]);
@@ -236,7 +239,7 @@ export class AppController implements OnModuleInit {
     const dest = String(req.headers['sec-fetch-dest'] || '');
     if (dest && dest !== 'video') throw new ForbiddenException('Streaming only');
     const l = await this.db.lesson.findUnique({ where: { id } });
-    if (!l) throw new NotFoundException();
+    if (!l || !l.video) throw new NotFoundException();
     await this.access(req.user, l.courseId);
     res.setHeader('Content-Disposition', 'inline');
     res.setHeader('Cache-Control', 'private, no-store');
@@ -300,6 +303,7 @@ export class AppController implements OnModuleInit {
     const hours = Number(cfg.reviewHours) || 3;
     const r = await this.db.paymentRequest.create({ data: { userId: req.user.id, courseId: id, answers, fatherName, phone, amount: c.price, days: c.durationDays, dueAt: new Date(Date.now() + hours * 3600 * 1000) } });
     await this.db.notification.create({ data: { userId: req.user.id, sender: 'Payments', title: 'Payment request received', message: `We received your request for "${c.title}". Review time: up to ${hours} hours. You will be notified when access is granted.` } });
+    this.mail.trigger('payment_received', req.user.email, { name: req.user.name, course: c.title, hours: String(hours) });
     return r;
   }
 
@@ -320,6 +324,8 @@ export class AppController implements OnModuleInit {
 
   // ---------- Labs (MCQs / practice) ----------
   private lines(s: any) { return String(s || '').split('\n').map((x) => x.trim()).filter(Boolean); }
+  private opts(q: any): string[] { return Array.isArray(q.options) ? q.options.map((x: any) => String(x)) : this.lines(q.options); }
+  private idx(q: any): number[] { return Array.isArray(q.correct) ? q.correct.map(Number).filter((n: number) => n >= 0) : this.nums(q.correct); }
   private nums(s: any) { return String(s || '').split(/[\s,]+/).map((n) => parseInt(n) - 1).filter((n) => n >= 0); }
 
   @UseGuards(AuthGuard) @Get('my/courses/:id/labs')
@@ -344,7 +350,7 @@ export class AppController implements OnModuleInit {
     await this.access(req.user, l.courseId);
     return {
       id: l.id, title: l.title, description: l.description, kind: l.kind, timeLimitMin: l.timeLimitMin, passPercent: l.passPercent,
-      items: (l.items as any[]).map((q) => ({ type: q.type || 'mcq', text: q.text || '', options: this.lines(q.options), hint: q.hint || '' })),
+      items: (l.items as any[]).map((q) => ({ type: q.type || 'mcq', text: q.text || '', options: this.opts(q), hint: q.hint || '' })),
     };
   }
 
@@ -357,13 +363,13 @@ export class AppController implements OnModuleInit {
     const norm = (s: string) => s.trim().toLowerCase().replace(/\s+/g, ' ');
     let total = 0, score = 0;
     const results = (l.items as any[]).map((q, i) => {
-      const t = q.type || 'mcq', a = answers[i], opts = this.lines(q.options);
+      const t = q.type || 'mcq', a = answers[i], opts = this.opts(q);
       if (t === 'task') return { type: t, done: !!a, solution: q.solution || '', explanation: q.explanation || '' };
       total++;
       let ok = false, correct = '';
-      if (t === 'mcq') { const c = this.nums(q.correct)[0]; ok = a !== undefined && a !== '' && Number(a) === c; correct = opts[c] || ''; }
+      if (t === 'mcq') { const c = this.idx(q)[0]; ok = a !== undefined && a !== '' && Number(a) === c; correct = opts[c] || ''; }
       else if (t === 'multi') {
-        const c = this.nums(q.correct).sort(), g = (Array.isArray(a) ? a : []).map(Number).sort();
+        const c = this.idx(q).sort(), g = (Array.isArray(a) ? a : []).map(Number).sort();
         ok = c.length > 0 && c.length === g.length && c.every((x, k) => x === g[k]); correct = c.map((n) => opts[n]).join(', ');
       } else { const acc = this.lines(q.answers).map(norm); ok = acc.includes(norm(String(a || ''))); correct = this.lines(q.answers)[0] || ''; }
       if (ok) score++;

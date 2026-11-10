@@ -8,6 +8,8 @@ export default function Header() {
   const { user, logout } = useAuth();
   const { settings } = useSettings();
   const menu = parseMenu(settings.headerMenu);
+  const showTeach = settings.showTeacherApply !== 'false' && !menu.some((m: any) => m.to === '/apply-teacher') && user?.role !== 'TEACHER' && user?.role !== 'SUPER_ADMIN';
+  const [support, setSupport] = useState(0);
   const nav = useNavigate();
   const [cats, setCats] = useState<any[]>([]);
   const [enrolled, setEnrolled] = useState(0);
@@ -22,16 +24,19 @@ export default function Header() {
     window.addEventListener('site-changed', load);   // admin panel se save hote hi header update
     return () => window.removeEventListener('site-changed', load);
   }, []);
+  const loadSupport = () => api('/support/unread').then((r) => setSupport(r.count)).catch(() => {});
   const loadEnrolled = () => api('/my/enrollments').then((r) => setEnrolled(r.length)).catch(() => {});
   useEffect(() => {
     if (!user) { setEnrolled(0); setNotes([]); return; }
     loadEnrolled();
     loadNotes();
+    loadSupport();
+    const t2 = setInterval(loadSupport, 20000);
     const t = setInterval(loadNotes, 30000);
     // enroll hote hi Dashboard icon aur notification foran update
     const onEnrolled = () => { loadEnrolled(); loadNotes(); };
     window.addEventListener('enrolled-changed', onEnrolled);
-    return () => { clearInterval(t); window.removeEventListener('enrolled-changed', onEnrolled); };
+    return () => { clearInterval(t); clearInterval(t2); window.removeEventListener('enrolled-changed', onEnrolled); };
   }, [user]);
 
   const toggleBell = async () => {
@@ -46,6 +51,7 @@ export default function Header() {
         {menu.map((m: any) => /^https?:/.test(m.to)
           ? <a key={m.id} href={m.to} target="_blank" rel="noreferrer">{m.label}</a>
           : <Link key={m.id} to={m.to}>{m.label}</Link>)}
+        {showTeach && <Link to="/apply-teacher">Apply for Teaching</Link>}
         {settings.headerShowCategories !== 'false' && cats.filter((c) => c.showInHeader).map((c) => (
           <Link key={c.id} to={`/courses?category=${c.id}`}>{c.name}</Link>
         ))}
@@ -62,6 +68,8 @@ export default function Header() {
               <Link to="/dashboard" className="icon" title="Dashboard">🎓<span className="lbl">Dashboard</span></Link>
             )}
             {user.role === 'SUPER_ADMIN' && <Link to="/admin" className="navlink">Admin</Link>}
+            {user.role === 'TEACHER' && <Link to="/teacher" className="navlink">Teacher portal</Link>}
+            {user.role !== 'SUPER_ADMIN' && <Link to="/support" className="icon" title="Support chat">💬{support > 0 && <b className="badge">{support}</b>}</Link>}
             <div className="bellwrap">
               <button className="icon" onClick={toggleBell} title="Notifications">🔔{unread > 0 && <b className="badge">{unread}</b>}</button>
               {open && (

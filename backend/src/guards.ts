@@ -34,3 +34,12 @@ export class AdminGuard implements CanActivate {
     return true;
   }
 }
+
+@Injectable()
+export class TeacherGuard implements CanActivate {
+  canActivate(ctx: ExecutionContext) {
+    const u = ctx.switchToHttp().getRequest().user;
+    if (!u || (u.role !== 'TEACHER' && u.role !== 'SUPER_ADMIN')) throw new ForbiddenException('Teachers only');
+    return true;
+  }
+}

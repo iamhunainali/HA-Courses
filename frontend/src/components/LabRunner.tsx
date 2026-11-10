@@ -60,6 +60,7 @@ export default function LabRunner({ id, onClose }: { id: string; onClose: () => 
               const cur: number[] = ans[i] || [];
               return <label className="opt" key={k}><input type="checkbox" disabled={!!res} checked={cur.includes(k)} onChange={(e) => setAns({ ...ans, [i]: e.target.checked ? [...cur, k] : cur.filter((x) => x !== k) })} /> {o}</label>;
             })}
+            {(q.type === 'mcq' || q.type === 'multi') && q.options.length === 0 && <p className="err">No options were added to this question. Please tell your teacher.</p>}
             {q.type === 'short' && <input placeholder="Type your answer" disabled={!!res} value={ans[i] || ''} onChange={(e) => setAns({ ...ans, [i]: e.target.value })} />}
             {q.type === 'task' && <label className="opt"><input type="checkbox" disabled={!!res} checked={!!ans[i]} onChange={(e) => setAns({ ...ans, [i]: e.target.checked })} /> I completed this task</label>}
             {q.hint && !res && (hints[i] ? <p className="hint">💡 {q.hint}</p> : <button className="btn ghost sm" onClick={() => setHints({ ...hints, [i]: true })}>Show hint</button>)}

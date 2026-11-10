@@ -2,6 +2,8 @@ import { useEffect, useRef, useState } from 'react';
 import { api, media, upload } from '../api';
 import Progress from '../components/Progress';
 import { DEFAULT_SECTIONS } from '../homeDefaults';
+import Sections from '../components/Sections';
+import { PreviewBox } from '../components/AdminPreview';
 
 export type F = { k: string; label: string; t: string; fields?: F[]; add?: string; opts?: string[]; ph?: string; multi?: string };
 const T = (k: string, label: string, ph?: string): F => ({ k, label, t: 'text', ph });
@@ -183,6 +185,7 @@ export default function HomepageBuilder() {
             <div className="editor">
               {SCHEMAS[s.type]?.fields.length === 0 && <p className="muted">Nothing to edit here. Manage the images in the Slides tab.</p>}
               <Fields fields={SCHEMAS[s.type]?.fields || []} value={draft} onChange={setDraft} cats={cats} />
+              <PreviewBox title="Live preview of this section"><div className="secpreview"><Sections list={[{ id: 'preview', type: s.type, data: draft }]} /></div></PreviewBox>
               <div className="row"><button className="btn" onClick={save}>Save section</button>{msg && <span className="ok">{msg}</span>}</div>
             </div>
           )}

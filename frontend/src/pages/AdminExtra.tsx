@@ -2,6 +2,7 @@ import { Fragment, useEffect, useState } from 'react';
 import { api, token } from '../api';
 import { Fields, F } from './HomepageBuilder';
 import { useStored } from '../useStored';
+import { CheckoutPreview, NotificationPreview } from '../components/AdminPreview';
 
 const ago = (d?: string) => {
   if (!d) return 'never';
@@ -42,6 +43,9 @@ export function UsersPanel() {
       load();
     } catch (e: any) { alert(e.message); }
   };
+  const toggleTeacher = async (u: any) => {
+    await api(`/admin/users/${u.id}/role`, { method: 'PATCH', body: { role: u.role === 'TEACHER' ? 'USER' : 'TEACHER' } }).catch((e) => alert(e.message)); load();
+  };
   const msg = async (u: any) => {
     const title = prompt('Message title:'); if (!title) return;
     const message = prompt('Message:'); if (!message) return;
@@ -75,7 +79,7 @@ export function UsersPanel() {
                 <tr>
                   <td><b>{u.name}</b><br /><small className="muted">{u.email}</small>{u.phone && <><br /><small className="muted">📞 {u.phone}{u.fatherName ? ` · Father: ${u.fatherName}` : ''}</small></>}</td>
                   <td><span className={'dot ' + (u.online ? 'on' : '')} /> {u.online ? 'Online' : `Offline · ${ago(u.lastSeen || u.lastLogin)}`}</td>
-                  <td><span className={'tag s-' + u.status}>{u.role === 'SUPER_ADMIN' ? 'ADMIN' : u.status}</span>{u.warnings > 0 && <small> ⚠ {u.warnings}</small>}{u.status === 'SUSPENDED' && <small className="muted"><br />{u.suspendedUntil ? 'back in ' + Math.max(0, Math.ceil((new Date(u.suspendedUntil).getTime() - Date.now()) / 60000)) + ' min' : 'until activated'}</small>}</td>
+                  <td><span className={'tag s-' + u.status}>{u.role === 'SUPER_ADMIN' ? 'ADMIN' : u.status}</span>{u.role === 'TEACHER' && <small className="tag buy"> Teacher</small>}{u.warnings > 0 && <small> ⚠ {u.warnings}</small>}{u.status === 'SUSPENDED' && <small className="muted"><br />{u.suspendedUntil ? 'back in ' + Math.max(0, Math.ceil((new Date(u.suspendedUntil).getTime() - Date.now()) / 60000)) + ' min' : 'until activated'}</small>}</td>
                   <td>{u.loginCount}</td>
                   <td className={u.failedLogins > 0 ? 'err' : ''}>{u.failedLogins}</td>
                   <td>{u._count.enrollments}</td>
@@ -85,6 +89,7 @@ export function UsersPanel() {
                       <button className="btn sm ghost" onClick={() => toggleAct(u)}>{open === u.id ? 'Hide activity' : 'Activity'}</button>
                       {u.role !== 'SUPER_ADMIN' && <>
                         <button className="btn sm" onClick={() => editU(u)}>Edit</button>
+                        <button className="btn sm ghost" onClick={() => toggleTeacher(u)}>{u.role === 'TEACHER' ? 'Remove teacher' : 'Make teacher'}</button>
                         <button className="btn sm" onClick={() => msg(u)}>Message</button>
                         <button className="btn sm ghost" onClick={() => act(u, 'warn')}>Warn</button>
                         {u.status === 'SUSPENDED' ? <button className="btn sm" onClick={() => act(u, 'activate')}>Activate</button> : <button className="btn sm ghost" onClick={() => act(u, 'suspend')}>Suspend</button>}
@@ -117,7 +122,7 @@ export function UsersPanel() {
 
 /* ---------------- Messages with custom sender ---------------- */
 export function MessagesPanel() {
-  const [f, setF] = useState({ sender: localStorage.getItem('senderName') || 'Support Team', email: '', title: '', message: '' });
+  const [f, setF] = useState({ sender: localStorage.getItem('senderName') || 'Support Team', email: '', title: '', message: '', sendEmail: false });
   const [res, setRes] = useState('');
   const send = async () => {
     localStorage.setItem('senderName', f.sender);
@@ -130,6 +135,8 @@ export function MessagesPanel() {
       <input placeholder="User email (leave empty to send to ALL users)" value={f.email} onChange={(e) => setF({ ...f, email: e.target.value })} />
       <input placeholder="Title" value={f.title} onChange={(e) => setF({ ...f, title: e.target.value })} />
       <textarea rows={3} placeholder="Message" value={f.message} onChange={(e) => setF({ ...f, message: e.target.value })} />
+      <label className="fld"><input type="checkbox" checked={f.sendEmail} onChange={(e) => setF({ ...f, sendEmail: e.target.checked })} /> Also send as email (SMTP)</label>
+      <NotificationPreview sender={f.sender} title={f.title} message={f.message} />
       <button className="btn" onClick={send}>Send</button>
       {res && <p className="muted">{res}</p>}
     </div>
@@ -213,7 +220,7 @@ export function PaymentsPanel() {
       {list.map((p) => (
         <div className="card" key={p.id}>
           <div className="line">
-            <span><b>{p.user.name}</b> <small className="muted">{p.user.email}</small> → <b>{p.course.title}</b></span>
+            <span><b>{p.user.name}</b> <small className="muted">{p.user.email}</small> → <b>{p.course.title}</b> {p.gateway && <small className="tag">{p.gateway}</small>}</span>
             <span><b>{p.amount}</b> · {p.days ? p.days + ' days' : 'lifetime'}</span>
           </div>
           <small className="muted">Submitted {new Date(p.createdAt).toLocaleString()}</small>
@@ -264,6 +271,7 @@ export function CheckoutPanel() {
       <h3>Checkout page (premium courses)</h3>
       <p className="muted">Edit everything users see on the payment page: text, payment accounts, and the form they must fill. Access is granted only after you approve the request in the Payments tab.</p>
       <Fields fields={CHECKOUT_SCHEMA} value={cfg} onChange={setCfg} cats={[]} />
+      <CheckoutPreview cfg={cfg} />
       <div className="row"><button className="btn" onClick={save}>Save checkout page</button>{msg && <span className="ok">{msg}</span>}</div>
     </div>
   );

@@ -9,19 +9,20 @@ import { unlink } from 'fs/promises';
 import { diskStorage } from 'multer';
 import { basename, extname, join } from 'path';
 import { DEFAULT_CHECKOUT } from './checkout.defaults';
+import { MailService } from './mail.service';
 import { PrismaService } from './prisma.service';
 import { AdminGuard, AuthGuard } from './guards';
 
 const UP = process.env.UPLOAD_DIR || '/data/uploads';
-const store = (sub: string) => ({
+export const store = (sub: string) => ({
   storage: diskStorage({
     destination: (_r, _f, cb) => cb(null, join(UP, sub)),
     filename: (_r, f, cb) => cb(null, randomUUID() + extname(f.originalname)),
   }),
   limits: { fileSize: 5 * 1024 * 1024 * 1024 },
 });
-const rm = (sub: string, name?: string | null) => (name ? unlink(join(UP, sub, name)).catch(() => {}) : Promise.resolve());
-const labData = (b: any) => ({
+export const rm = (sub: string, name?: string | null) => (name ? unlink(join(UP, sub, name)).catch(() => {}) : Promise.resolve());
+export const labData = (b: any) => ({
   title: String(b.title || '').trim() || 'Untitled lab', description: b.description || '', kind: b.kind || 'Quiz',
   timeLimitMin: parseInt(b.timeLimitMin) || 0, passPercent: Math.min(100, Math.max(0, parseInt(b.passPercent) || 60)),
   published: b.published !== false, items: Array.isArray(b.items) ? b.items : [],
@@ -30,7 +31,12 @@ const labData = (b: any) => ({
 @Controller('admin')
 @UseGuards(AuthGuard, AdminGuard)
 export class AdminController {
-  constructor(private db: PrismaService) {}
+  constructor(private db: PrismaService, private mail: MailService) {}
+
+  private async mailUser(userId: string, event: string, vars: Record<string, string>) {
+    const u = await this.db.user.findUnique({ where: { id: userId } });
+    if (u) this.mail.trigger(event, u.email, { name: u.name, ...vars });
+  }
 
   @Get('stats')
   async stats() {
@@ -38,8 +44,10 @@ export class AdminController {
       this.db.user.count({ where: { role: 'USER' } }), this.db.course.count(), this.db.enrollment.count(), this.db.review.count(),
     ]);
     const pending = await this.db.paymentRequest.count({ where: { status: 'PENDING' } });
+    const supportUnread = await this.db.supportMessage.count({ where: { from: 'USER', readByAdmin: false } });
+    const apps = await this.db.teacherApplication.count({ where: { status: 'PENDING' } });
     const online = await this.db.user.count({ where: { lastSeen: { gt: new Date(Date.now() - 120000) } } });
-    return { users, courses, enrollments, reviews, 'pending payments': pending, 'online now': online };
+    return { users, courses, enrollments, reviews, 'pending payments': pending, 'online now': online, 'support unread': supportUnread, 'teacher applications': apps };
   }
 
   // ----- Categories -----
@@ -57,7 +65,7 @@ export class AdminController {
   createCourse(@Body() b: any, @UploadedFile() f: any) {
     if (!b.title || !b.description) throw new BadRequestException('Title and description required');
     return this.db.course.create({
-      data: { title: b.title, description: b.description, price: parseFloat(b.price) || 0, published: b.published !== 'false', categoryId: b.categoryId || null, thumbnail: f?.filename, plan: b.plan === 'PREMIUM' ? 'PREMIUM' : 'FREE', durationDays: parseInt(b.durationDays) || 0 },
+      data: { title: b.title, description: b.description, price: parseFloat(b.price) || 0, published: b.published !== 'false', categoryId: b.categoryId || null, teacherId: b.teacherId || null, thumbnail: f?.filename, plan: b.plan === 'PREMIUM' ? 'PREMIUM' : 'FREE', durationDays: parseInt(b.durationDays) || 0 },
     });
   }
 
@@ -73,6 +81,7 @@ export class AdminController {
         price: b.price !== undefined ? parseFloat(b.price) || 0 : c.price,
         published: b.published !== undefined ? b.published !== 'false' : c.published,
         plan: b.plan ? (b.plan === 'PREMIUM' ? 'PREMIUM' : 'FREE') : c.plan,
+        teacherId: b.teacherId !== undefined ? b.teacherId || null : c.teacherId,
         durationDays: b.durationDays !== undefined ? parseInt(b.durationDays) || 0 : c.durationDays,
         categoryId: b.categoryId !== undefined ? b.categoryId || null : c.categoryId,
         ...(f ? { thumbnail: f.filename } : {}),
@@ -99,6 +108,14 @@ export class AdminController {
     if (!f) throw new BadRequestException('Video file required');
     const count = await this.db.lesson.count({ where: { courseId: id } });
     return this.db.lesson.create({ data: { courseId: id, title: b.title || f.originalname, video: f.filename, order: parseInt(b.order) || count + 1, section: b.section || null, description: b.description || null } });
+  }
+
+  @Post('courses/:id/lessons-link')
+  async addLessonLink(@Param('id') id: string, @Body() b: any) {
+    const url = String(b.url || '').trim();
+    if (!/^https?:\/\//i.test(url)) throw new BadRequestException('Paste a valid link starting with http:// or https://');
+    const count = await this.db.lesson.count({ where: { courseId: id } });
+    return this.db.lesson.create({ data: { courseId: id, title: b.title || 'Lecture', video: '', videoUrl: url, order: count + 1, section: b.section || null, description: b.description || null } });
   }
 
   @Delete('lessons/:id')
@@ -185,6 +202,7 @@ export class AdminController {
       case 'suspend':
         await this.db.user.update({ where: { id }, data: { status: 'SUSPENDED', suspendedUntil: mins > 0 ? new Date(Date.now() + mins * 60000) : null, suspendReason: b.reason || null } });
         await note('Account suspended', (b.reason || 'Your account has been suspended.') + (mins > 0 ? ` You can log in again after ${mins} minute(s).` : ''));
+        this.mailUser(id, 'suspended', { reason: b.reason || '', until: mins > 0 ? `after ${mins} minute(s)` : 'once an admin reactivates your account' });
         break;
       case 'activate':
         await this.db.user.update({ where: { id }, data: { status: 'ACTIVE', suspendedUntil: null, suspendReason: null, failedStreak: 0 } });
@@ -211,7 +229,7 @@ export class AdminController {
   // ----- Site settings -----
   @Patch('settings')
   async saveSettings(@Body() b: any) {
-    const keys = ['siteName', 'tagline', 'footerText', 'coursesTitle', 'reviewsTitle', 'contactEmail', 'brandColor', 'headerMenu', 'headerShowCategories', 'currency'];
+    const keys = ['siteName', 'tagline', 'footerText', 'coursesTitle', 'reviewsTitle', 'contactEmail', 'brandColor', 'headerMenu', 'headerShowCategories', 'currency', 'showTeacherApply'];
     for (const k of keys) {
       if (typeof b[k] === 'string') await this.db.setting.upsert({ where: { key: k }, update: { value: b[k] }, create: { key: k, value: b[k] } });
     }
@@ -323,6 +341,7 @@ export class AdminController {
     if (!e) throw new NotFoundException();
     await this.db.enrollment.update({ where: { id }, data: { revokedAt: new Date() } });
     await this.db.notification.create({ data: { userId: e.userId, sender: b.sender || 'Admin', title: 'Course access ended', message: `Your access to "${e.course.title}" was ended by admin.${b.reason ? ' Reason: ' + b.reason : ''} To enroll again, please complete the payment again.` } });
+    this.mailUser(e.userId, 'access_ended', { course: e.course.title, reason: b.reason ? 'Reason: ' + b.reason : '' });
     return { ok: true };
   }
 
@@ -376,6 +395,7 @@ export class AdminController {
     else await this.db.enrollment.create({ data: { userId: p.userId, courseId: p.courseId, expiresAt, celebrated: false } });
     await this.db.paymentRequest.update({ where: { id }, data: { status: 'APPROVED', reviewedAt: new Date(), note: b.note || null } });
     await this.db.notification.create({ data: { userId: p.userId, sender: 'Payments', title: 'Access granted', message: `Your payment was approved. You now have access to "${p.course.title}"${expiresAt ? ` until ${expiresAt.toDateString()}` : ''}.` } });
+    this.mailUser(p.userId, 'payment_approved', { course: p.course.title });
     return { ok: true };
   }
 
@@ -386,6 +406,7 @@ export class AdminController {
     if (p.status !== 'PENDING') throw new BadRequestException('Already reviewed');
     await this.db.paymentRequest.update({ where: { id }, data: { status: 'REJECTED', reviewedAt: new Date(), note: b.reason || null } });
     await this.db.notification.create({ data: { userId: p.userId, sender: 'Payments', title: 'Payment not approved', message: `Your payment for "${p.course.title}" could not be verified.${b.reason ? ' Reason: ' + b.reason : ''} You can submit the form again.` } });
+    this.mailUser(p.userId, 'payment_rejected', { course: p.course.title, reason: b.reason ? 'Reason: ' + b.reason : '' });
     return { ok: true };
   }
 
@@ -414,10 +435,12 @@ export class AdminController {
       const u = await this.db.user.findUnique({ where: { email: String(b.email).trim().toLowerCase() } });
       if (!u) throw new NotFoundException('No user with this email');
       await this.db.notification.create({ data: { userId: u.id, title: b.title, message: b.message, sender: b.sender || null } });
+      if (b.sendEmail) this.mail.send(u.email, b.title, String(b.message).replace(/\n/g, '<br>'), 'message');
       return { sent: 1 };
     }
-    const all = await this.db.user.findMany({ where: { role: 'USER' }, select: { id: true } });
+    const all = await this.db.user.findMany({ where: { role: 'USER' }, select: { id: true, email: true } });
     await this.db.notification.createMany({ data: all.map((u) => ({ userId: u.id, title: b.title, message: b.message, sender: b.sender || null })) });
+    if (b.sendEmail) (async () => { for (const u of all.slice(0, 400)) await this.mail.send(u.email, b.title, String(b.message).replace(/\n/g, '<br>'), 'message'); })().catch(() => {});
     return { sent: all.length };
   }
 }

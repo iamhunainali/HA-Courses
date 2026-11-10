@@ -10,6 +10,7 @@ datasource db {
 enum Role {
   USER
   SUPER_ADMIN
+  TEACHER
 }
 
 enum UserStatus {
@@ -62,6 +63,7 @@ model Course {
   thumbnail   String?
   published   Boolean      @default(true)
   plan        String       @default("FREE")
+  teacherId   String?
   durationDays Int         @default(0)
   createdAt   DateTime     @default(now())
   categoryId  String?
@@ -77,7 +79,8 @@ model Lesson {
   courseId  String
   course    Course       @relation(fields: [courseId], references: [id], onDelete: Cascade)
   title     String
-  video     String
+  video     String      @default("")
+  videoUrl  String?
   order     Int          @default(0)
   createdAt DateTime     @default(now())
   section     String?
@@ -171,6 +174,9 @@ model PaymentRequest {
   days       Int       @default(0)
   fatherName String    @default("")
   phone      String    @default("")
+  gateway    String?
+  txnRef     String?
+  gatewayInfo Json?
   status     String    @default("PENDING")
   note       String?
   createdAt  DateTime  @default(now())
@@ -216,4 +222,74 @@ model LessonProgress {
   createdAt DateTime @default(now())
 
   @@unique([userId, lessonId])
+}
+
+model Popup {
+  id         String   @id @default(uuid())
+  name       String
+  active     Boolean  @default(true)
+  title      String   @default("")
+  body       String   @default("")
+  image      String?
+  buttonText String?
+  buttonLink String?
+  style      Json
+  audience   Json
+  frequency  Json
+  pages      String   @default("all")
+  delaySec   Int      @default(2)
+  priority   Int      @default(0)
+  startAt    DateTime?
+  endAt      DateTime?
+  createdAt  DateTime @default(now())
+}
+
+model PopupView {
+  id      String  @id @default(uuid())
+  popupId String
+  userId  String
+  count   Int     @default(0)
+  lastKey String?
+
+  @@unique([popupId, userId])
+}
+
+model EmailLog {
+  id        String   @id @default(uuid())
+  to        String
+  subject   String
+  kind      String   @default("manual")
+  status    String
+  error     String?
+  createdAt DateTime @default(now())
+}
+
+model SupportMessage {
+  id          String   @id @default(uuid())
+  userId      String
+  from        String
+  text        String   @default("")
+  image       String?
+  readByAdmin Boolean  @default(false)
+  readByUser  Boolean  @default(false)
+  createdAt   DateTime @default(now())
+}
+
+model TeacherApplication {
+  id              String    @id @default(uuid())
+  userId          String
+  name            String
+  email           String
+  phone           String
+  city            String    @default("")
+  qualification   String
+  experienceYears Int       @default(0)
+  subjects        String
+  bio             String
+  sampleLink      String?
+  cv              String?
+  status          String    @default("PENDING")
+  note            String?
+  createdAt       DateTime  @default(now())
+  reviewedAt      DateTime?
 }
